@@ -8,15 +8,13 @@ from unittest.mock import Mock, call, patch
 import aiohttp
 from homeassistant.components import switch
 from homeassistant.components.sensor import (
-    STATE_CLASS_TOTAL,
-    STATE_CLASS_TOTAL_INCREASING,
+    SensorStateClass,
     SensorDeviceClass,
 )
 from homeassistant.components.switch import SERVICE_TURN_OFF, SERVICE_TURN_ON
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    DEVICE_CLASS_ENERGY,
-    ENERGY_KILO_WATT_HOUR,
+    UnitOfEnergy,
 )
 import homeassistant.helpers.aiohttp_client as client
 from podpointclient.charge_override import ChargeOverride
@@ -154,10 +152,10 @@ async def test_total_energy_pod_sensor(hass, bypass_get_data):
 
     assert "Total Energy" == total_energy.name
 
-    assert DEVICE_CLASS_ENERGY == total_energy.device_class
-    assert STATE_CLASS_TOTAL_INCREASING == total_energy.state_class
+    assert SensorDeviceClass.ENERGY == total_energy.device_class
+    assert SensorStateClass.TOTAL_INCREASING == total_energy.state_class
     assert 0.0 == total_energy.native_value
-    assert ENERGY_KILO_WATT_HOUR == total_energy.native_unit_of_measurement
+    assert UnitOfEnergy.KILO_WATT_HOUR == total_energy.native_unit_of_measurement
     assert "mdi:lightning-bolt-outline" == total_energy.icon
     assert False == total_energy.is_on
 
@@ -182,8 +180,8 @@ async def test_current_energy_pod_sensor(hass, bypass_get_data):
 
     assert "Current Energy" == current_energy.name
 
-    assert DEVICE_CLASS_ENERGY == current_energy.device_class
-    assert STATE_CLASS_TOTAL == current_energy.state_class
+    assert SensorDeviceClass.ENERGY == current_energy.device_class
+    assert SensorStateClass.TOTAL == current_energy.state_class
     assert 0.0 == current_energy.native_value
     assert "mdi:car-electric" == current_energy.icon
 

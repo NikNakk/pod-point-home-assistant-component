@@ -4,7 +4,7 @@ import logging
 from typing import Dict
 
 from homeassistant import config_entries
-from homeassistant.components import dhcp
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
@@ -91,7 +91,7 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(config_entry) -> FlowResult:
         return PodPointOptionsFlowHandler(config_entry)
 
-    async def async_step_dhcp(self, discovery_info: dhcp.DhcpServiceInfo) -> FlowResult:
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> FlowResult:
         formatted_mac = format_mac(discovery_info.macaddress)
         _LOGGER.info("Found PodPoint device with mac %s", formatted_mac)
 

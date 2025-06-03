@@ -8,15 +8,13 @@ from unittest.mock import Mock, call, patch
 import aiohttp
 from homeassistant.components import switch
 from homeassistant.components.sensor import (
-    STATE_CLASS_TOTAL,
-    STATE_CLASS_TOTAL_INCREASING,
+    SensorStateClass,
     SensorDeviceClass,
 )
 from homeassistant.components.switch import SERVICE_TURN_OFF, SERVICE_TURN_ON
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    DEVICE_CLASS_ENERGY,
-    ENERGY_KILO_WATT_HOUR,
+    UnitOfEnergy,
 )
 import homeassistant.helpers.aiohttp_client as client
 from podpointclient.pod import Pod
