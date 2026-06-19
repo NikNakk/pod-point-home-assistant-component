@@ -10,7 +10,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import SIGNAL_STRENGTH_DECIBELS, UnitOfEnergy, UnitOfTime
+from homeassistant.const import (
+    PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS,
+    UnitOfEnergy,
+    UnitOfTime,
+)
 from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -54,6 +59,46 @@ async def async_setup_entry(hass, entry, async_add_devices):
         return
 
     sensors = []
+    known_vehicle_keys = set()
+
+    def _vehicle_key(ppid: str, vehicle_idx: int, vehicle: Dict[str, Any]):
+        vehicle_id = vehicle.get("id") or _get_nested(vehicle, "vehicle", "id")
+
+        if vehicle_id is None:
+            vehicle_id = vehicle_idx
+
+        return (ppid, vehicle_id)
+
+    def _new_vehicle_sensors():
+        new_sensors = []
+
+        for idx, pod in enumerate(coordinator.data):
+            vehicles = coordinator.home_app_vehicles_by_ppid.get(pod.ppid, [])
+
+            for vehicle_idx, vehicle in enumerate(vehicles):
+                if not isinstance(vehicle, dict):
+                    continue
+
+                key = _vehicle_key(pod.ppid, vehicle_idx, vehicle)
+
+                if key in known_vehicle_keys:
+                    continue
+
+                known_vehicle_keys.add(key)
+                new_sensors.append(
+                    PodPointHomeAppVehicleSensor(
+                        coordinator, entry, idx, vehicle_idx
+                    )
+                )
+
+        return new_sensors
+
+    @callback
+    def _async_add_new_home_app_vehicle_sensors() -> None:
+        new_sensors = _new_vehicle_sensors()
+
+        if new_sensors:
+            async_add_devices(new_sensors)
 
     for i in range(len(coordinator.data)):
         pps = PodPointSensor(coordinator, entry, i)
@@ -66,7 +111,6 @@ async def async_setup_entry(hass, entry, async_add_devices):
         pplcccs = PodPointLastCompleteChargeCostSensor(coordinator, entry, i)
         charge_mode = PodPointChargeModeEntity(coordinator, entry, i)
         charge_override = PodPointChargeOverrideEntity(coordinator, entry, i)
-        balance = PodPointAccountBalanceEntity(coordinator, entry)
 
         sensors.append(pps)
         sensors.append(ppcts)
@@ -79,9 +123,26 @@ async def async_setup_entry(hass, entry, async_add_devices):
         sensors.append(charge_mode)
         sensors.append(charge_override)
 
-        sensors.append(balance)
+    sensors.extend(_new_vehicle_sensors())
+    sensors.append(PodPointAccountBalanceEntity(coordinator, entry))
+    sensors.append(PodPointRewardWalletEntity(coordinator, entry))
 
     async_add_devices(sensors)
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_add_new_home_app_vehicle_sensors)
+    )
+
+
+def _get_nested(dictionary: Dict[str, Any], *keys):
+    value = dictionary
+
+    for key in keys:
+        if not isinstance(value, dict):
+            return None
+
+        value = value.get(key)
+
+    return value
 
 
 class PodPointSensor(
@@ -632,6 +693,150 @@ class PodPointLastCompleteChargeCostSensor(
         return None
 
 
+class PodPointHomeAppVehicleSensor(PodPointEntity, SensorEntity):
+    """Pod Point Home App vehicle battery sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Vehicle Battery"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:car-electric"
+
+    def __init__(
+        self,
+        coordinator,
+        config_entry: ConfigEntry,
+        idx: int,
+        vehicle_idx: int,
+    ):
+        self.vehicle_idx = vehicle_idx
+        super().__init__(coordinator, config_entry=config_entry, idx=idx)
+
+    @property
+    def unique_id(self):
+        vehicle_id = self.vehicle_assignment.get("id") or _get_nested(
+            self.vehicle_assignment, "vehicle", "id"
+        )
+
+        return f"{super().unique_id}_vehicle_{vehicle_id}_battery"
+
+    @property
+    def native_value(self):
+        """Return the vehicle battery percentage."""
+        return _get_nested(
+            self.vehicle_assignment,
+            "vehicle",
+            "chargeState",
+            "batteryLevelPercent",
+        )
+
+    @property
+    def name(self):
+        display_name = self.vehicle_display_name
+
+        if display_name:
+            return f"{display_name} Battery"
+
+        return f"Vehicle {self.vehicle_idx + 1} Battery"
+
+    @property
+    def vehicle_assignment(self) -> Dict[str, Any]:
+        vehicles = self.coordinator.home_app_vehicles_by_ppid.get(self.pod.ppid, [])
+
+        if self.vehicle_idx >= len(vehicles):
+            return {}
+
+        vehicle = vehicles[self.vehicle_idx]
+
+        if not isinstance(vehicle, dict):
+            return {}
+
+        return vehicle
+
+    @property
+    def vehicle_display_name(self) -> str:
+        vehicle_information = _get_nested(
+            self.vehicle_assignment, "vehicle", "vehicleInformation"
+        )
+
+        if not isinstance(vehicle_information, dict):
+            return None
+
+        display_name = vehicle_information.get("displayName")
+        if display_name:
+            return display_name
+
+        return " ".join(
+            filter(
+                None,
+                [
+                    vehicle_information.get("brand"),
+                    vehicle_information.get("model"),
+                    vehicle_information.get("modelVariant"),
+                ],
+            )
+        )
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        vehicle = self.vehicle_assignment.get("vehicle", {})
+        vehicle_information = vehicle.get("vehicleInformation", {})
+        charge_state = vehicle.get("chargeState", {})
+
+        return {
+            "attribution": ATTRIBUTION,
+            "integration": DOMAIN,
+            "ppid": self.pod.ppid,
+            "vehicle_assignment_id": self.vehicle_assignment.get("id"),
+            "vehicle_id": vehicle.get("id"),
+            "enode_user_id": vehicle.get("enodeUserId"),
+            "enode_vehicle_id": vehicle.get("enodeVehicleId"),
+            "is_primary": self.vehicle_assignment.get("isPrimary"),
+            "is_plugged_in_to_this_charger": self.vehicle_assignment.get(
+                "isPluggedInToThisCharger"
+            ),
+            "brand": vehicle_information.get("brand"),
+            "model": vehicle_information.get("model"),
+            "model_variant": vehicle_information.get("modelVariant"),
+            "registration_plate": vehicle_information.get(
+                "vehicleRegistrationPlate"
+            ),
+            "display_name": self.vehicle_display_name,
+            "last_seen": vehicle.get("lastSeen"),
+            "battery_capacity": charge_state.get("batteryCapacity"),
+            "charge_limit_percent": charge_state.get("chargeLimitPercent"),
+            "charge_limit_source": charge_state.get("chargeLimitSource"),
+            "charge_rate": charge_state.get("chargeRate"),
+            "charge_time_remaining": charge_state.get("chargeTimeRemaining"),
+            "is_charging": charge_state.get("isCharging"),
+            "is_fully_charged": charge_state.get("isFullyCharged"),
+            "is_plugged_in": charge_state.get("isPluggedIn"),
+            "range": charge_state.get("range"),
+            "power_delivery_state": charge_state.get("powerDeliveryState"),
+            "charge_state_last_updated": charge_state.get("lastUpdated"),
+            "intents": self.vehicle_assignment.get("intents"),
+            "current_intent": self.vehicle_assignment.get("currentIntent"),
+            "raw": self.vehicle_assignment,
+            "delegated_controls": self.coordinator.home_app_delegated_controls_by_ppid.get(
+                self.pod.ppid
+            ),
+            "charge_overrides": self.coordinator.home_app_charge_overrides_by_ppid.get(
+                self.pod.ppid
+            ),
+            "tariffs": self.coordinator.home_app_tariffs_by_ppid.get(self.pod.ppid),
+            "remote_lock": self.coordinator.home_app_remote_locks_by_ppid.get(
+                self.pod.ppid
+            ),
+            "preferences": self.coordinator.home_app_preferences_by_ppid.get(
+                self.pod.ppid
+            ),
+        }
+
+    @property
+    def entity_picture(self) -> str:
+        return None
+
+
 class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
     """Pod Point Balance Entity"""
 
@@ -700,3 +905,89 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         typed_coordinator: PodPointDataUpdateCoordinator = self.coordinator
         return typed_coordinator.online is True
+
+
+class PodPointRewardWalletEntity(CoordinatorEntity, SensorEntity):
+    """Pod Point Home App reward wallet sensor."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Reward Wallet"
+    _attr_icon = "mdi:wallet-giftcard"
+
+    @property
+    def native_value(self):
+        """Return the first useful scalar from the reward wallet payload."""
+        wallet = self.wallet
+
+        if not isinstance(wallet, dict):
+            return None
+
+        for path in (
+            ("rewards", "balanceGbp"),
+            ("allowance", "balanceGbp"),
+            ("payments", "totalWithdrawnGbp"),
+        ):
+            value = _get_nested(wallet, *path)
+            if isinstance(value, (int, float, str)):
+                return value
+
+        for key in (
+            "balance",
+            "availableBalance",
+            "rewardBalance",
+            "amount",
+            "value",
+            "points",
+        ):
+            value = wallet.get(key)
+            if isinstance(value, (int, float, str)):
+                return value
+
+        return None
+
+    @property
+    def native_unit_of_measurement(self):
+        """Return reward wallet units, if the API provides one."""
+        wallet = self.wallet
+
+        if not isinstance(wallet, dict):
+            return None
+
+        if _get_nested(wallet, "rewards", "balanceGbp") is not None:
+            return DEFAULT_CURRENCY
+
+        return wallet.get("currency") or wallet.get("unit")
+
+    @property
+    def wallet(self):
+        """Return the cached reward wallet payload."""
+        return self.coordinator.home_app_reward_wallet
+
+    @property
+    def unique_id(self):
+        """Return a unique ID to use for this entity."""
+        user = self.coordinator.user
+
+        if user is not None and user.account is not None:
+            return f"{user.account.uid}_reward_wallet"
+
+        return "pod_point_reward_wallet"
+
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        attrs = {"attribution": ATTRIBUTION, "integration": DOMAIN}
+
+        if isinstance(self.wallet, dict):
+            attrs.update(self.wallet)
+        else:
+            attrs["raw"] = self.wallet
+
+        return attrs
+
+    @property
+    def available(self) -> bool:
+        typed_coordinator: PodPointDataUpdateCoordinator = self.coordinator
+        return (
+            typed_coordinator.online is True
+            and typed_coordinator.home_app_reward_wallet is not None
+        )

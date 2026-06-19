@@ -146,6 +146,111 @@ POD_COMPLETE_FIXTURE = {
     ],
 }
 
+HOME_APP_VEHICLES_FIXTURE = [
+    {
+        "ppid": "PSL-123456",
+        "vehicles": [
+            {
+                "id": "assignment-1",
+                "isPluggedInToThisCharger": False,
+                "vehicle": {
+                    "id": "vehicle-1",
+                    "lastSeen": "2026-06-19T20:23:49.000Z",
+                    "enodeUserId": "enode-user-1",
+                    "enodeVehicleId": "enode-vehicle-1",
+                    "vehicleInformation": {
+                        "brand": "Volkswagen",
+                        "model": "ID.4",
+                        "modelVariant": "1st",
+                        "vehicleRegistrationPlate": None,
+                        "displayName": None,
+                    },
+                    "chargeState": {
+                        "batteryCapacity": 77,
+                        "batteryLevelPercent": 72,
+                        "chargeLimitPercent": 80,
+                        "chargeLimitSource": "vehicle",
+                        "chargeRate": None,
+                        "chargeTimeRemaining": None,
+                        "isCharging": False,
+                        "isFullyCharged": False,
+                        "isPluggedIn": False,
+                        "lastUpdated": "2026-06-19T20:23:49.000Z",
+                        "powerDeliveryState": "UNPLUGGED",
+                        "range": 291,
+                    },
+                },
+                "intents": {
+                    "id": "intent-1",
+                    "details": [
+                        {
+                            "chargeKWh": 16.4,
+                            "dayOfWeek": "MONDAY",
+                            "chargeByTime": "07:00:00",
+                        }
+                    ],
+                },
+                "currentIntent": None,
+                "isPrimary": True,
+            },
+            {
+                "id": "assignment-2",
+                "isPluggedInToThisCharger": True,
+                "vehicle": {
+                    "id": "vehicle-2",
+                    "lastSeen": "2026-06-19T21:23:49.000Z",
+                    "enodeUserId": "enode-user-2",
+                    "enodeVehicleId": "enode-vehicle-2",
+                    "vehicleInformation": {
+                        "brand": "Nissan",
+                        "model": "Leaf",
+                        "modelVariant": None,
+                        "vehicleRegistrationPlate": "EV26 POD",
+                        "displayName": "School Run",
+                    },
+                    "chargeState": {
+                        "batteryCapacity": 40,
+                        "batteryLevelPercent": 41,
+                        "chargeLimitPercent": 90,
+                        "chargeLimitSource": "vehicle",
+                        "chargeRate": 3.2,
+                        "chargeTimeRemaining": 3600,
+                        "isCharging": True,
+                        "isFullyCharged": False,
+                        "isPluggedIn": True,
+                        "lastUpdated": "2026-06-19T21:23:49.000Z",
+                        "powerDeliveryState": "CHARGING",
+                        "range": 95,
+                    },
+                },
+                "intents": None,
+                "currentIntent": {"chargeKWh": 12.5},
+                "isPrimary": False,
+            },
+        ],
+    }
+]
+
+HOME_APP_REWARD_WALLET_FIXTURE = {
+    "allowance": {
+        "allowancePoundsEstimated": 103.5,
+        "annualAllowanceMiles": 4500,
+        "annualAllowancePoints": None,
+        "balanceGbp": 101.61,
+        "balanceMiles": 4417.4,
+        "balancePoints": None,
+    },
+    "payments": {
+        "thresholdGbp": 10,
+        "totalWithdrawnGbp": 0,
+    },
+    "rewards": {
+        "balanceGbp": 1.9,
+        "balanceMiles": 82.6,
+        "balancePoints": 190,
+    },
+}
+
 POD_COMPREHENSIVE_FIXTURE = {
     "id": 12234,
     "name": None,

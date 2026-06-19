@@ -25,6 +25,8 @@ from custom_components.pod_point.coordinator import (
 from .const import MOCK_CONFIG
 from .fixtures import (
     FIRMWARE_COMPLETE_FIXTURE,
+    HOME_APP_REWARD_WALLET_FIXTURE,
+    HOME_APP_VEHICLES_FIXTURE,
     POD_COMPLETE_FIXTURE,
     USER_COMPLETE_FIXTURE,
 )
@@ -57,6 +59,18 @@ async def subject_with_data(hass) -> PodPointDataUpdateCoordinator:
     coordinator.data = pods
     coordinator.user = user
     coordinator.online = True
+    coordinator.home_app_delegated_control_vehicles = HOME_APP_VEHICLES_FIXTURE
+    coordinator.home_app_vehicles_by_ppid = {
+        HOME_APP_VEHICLES_FIXTURE[0]["ppid"]: HOME_APP_VEHICLES_FIXTURE[0]["vehicles"]
+    }
+    coordinator.home_app_reward_wallet = HOME_APP_REWARD_WALLET_FIXTURE
+    coordinator.home_app_delegated_controls_by_ppid = {"PSL-123456": {"enabled": True}}
+    coordinator.home_app_charge_overrides_by_ppid = {"PSL-123456": {"active": False}}
+    coordinator.home_app_tariffs_by_ppid = {"PSL-123456": {"currency": "GBP"}}
+    coordinator.home_app_remote_locks_by_ppid = {"PSL-123456": {"locked": False}}
+    coordinator.home_app_preferences_by_ppid = {
+        "PSL-123456": {"smartCharging": True}
+    }
     return coordinator
 
 

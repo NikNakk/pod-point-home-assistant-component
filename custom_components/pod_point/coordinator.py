@@ -4,7 +4,7 @@ Data coordinator for pod point client
 
 from datetime import datetime, timedelta
 import logging
-from typing import Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -12,12 +12,13 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from podpointclient.charge import Charge
 from podpointclient.client import PodPointClient
-from podpointclient.errors import ApiConnectionError, AuthError, SessionError
+from podpointclient.errors import APIError, ApiConnectionError, AuthError, SessionError
 from podpointclient.pod import Firmware, Pod
 from podpointclient.user import User
 import pytz
 
 from .const import DOMAIN, LIMITED_POD_INCLUDES
+from .home_app_client import PodPointHomeAppClient
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -32,9 +33,18 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
     ) -> None:
         """Initialize."""
         self.api: PodPointClient = client
+        self.home_app_api = PodPointHomeAppClient(client)
         self.platforms = []
         self.pods: List[Pod] = []
         self.home_charges: List[Charge] = []
+        self.home_app_delegated_control_vehicles = []
+        self.home_app_vehicles_by_ppid: Dict[str, List[Dict[str, Any]]] = {}
+        self.home_app_delegated_controls_by_ppid: Dict[str, Any] = {}
+        self.home_app_charge_overrides_by_ppid: Dict[str, Any] = {}
+        self.home_app_tariffs_by_ppid: Dict[str, Any] = {}
+        self.home_app_remote_locks_by_ppid: Dict[str, Any] = {}
+        self.home_app_preferences_by_ppid: Dict[str, Any] = {}
+        self.home_app_reward_wallet = None
         self.charges_perpage_all = (
             50  # When we are fetching all charges (new pod, or first launch)
         )
@@ -87,6 +97,8 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
             new_pods_by_id = await self.__async_update_pod_connection_status(
                 new_pods_by_id
             )
+
+            await self.__async_update_home_app_data(list(new_pods_by_id.values()))
 
             # Determine if we should fetch for all charges, or just the most recent for a user.
             should_fetch_all_charges = self.__should_fetch_all_charges(
@@ -386,3 +398,98 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
                 new_pods_by_id[pod.unit_id] = pod
 
         return new_pods_by_id
+
+    async def __async_update_home_app_data(self, pods: List[Pod]) -> None:
+        """Fetch optional Pod Point Home App data."""
+        _LOGGER.debug("=== HOME APP UPDATE ===")
+
+        vehicles_response = await self.__async_fetch_home_app_data(
+            "delegated control vehicles",
+            self.home_app_api.async_get_delegated_control_vehicles,
+            [],
+        )
+        self.home_app_delegated_control_vehicles = vehicles_response or []
+        self.home_app_vehicles_by_ppid = self.__group_home_app_vehicles_by_ppid(
+            self.home_app_delegated_control_vehicles
+        )
+
+        self.home_app_reward_wallet = await self.__async_fetch_home_app_data(
+            "reward wallet",
+            self.home_app_api.async_get_reward_wallet,
+            None,
+        )
+
+        self.home_app_delegated_controls_by_ppid = {}
+        self.home_app_charge_overrides_by_ppid = {}
+        self.home_app_tariffs_by_ppid = {}
+        self.home_app_remote_locks_by_ppid = {}
+        self.home_app_preferences_by_ppid = {}
+
+        for pod in pods:
+            ppid = pod.ppid
+            self.home_app_delegated_controls_by_ppid[
+                ppid
+            ] = await self.__async_fetch_home_app_data(
+                f"delegated controls for {ppid}",
+                lambda ppid=ppid: self.home_app_api.async_get_delegated_controls(ppid),
+                None,
+            )
+            self.home_app_charge_overrides_by_ppid[
+                ppid
+            ] = await self.__async_fetch_home_app_data(
+                f"charge overrides for {ppid}",
+                lambda ppid=ppid: self.home_app_api.async_get_charge_overrides(ppid),
+                None,
+            )
+            self.home_app_tariffs_by_ppid[ppid] = await self.__async_fetch_home_app_data(
+                f"tariffs for {ppid}",
+                lambda ppid=ppid: self.home_app_api.async_get_tariffs(ppid),
+                None,
+            )
+            self.home_app_remote_locks_by_ppid[
+                ppid
+            ] = await self.__async_fetch_home_app_data(
+                f"remote lock for {ppid}",
+                lambda ppid=ppid: self.home_app_api.async_get_remote_lock(ppid),
+                None,
+            )
+            self.home_app_preferences_by_ppid[
+                ppid
+            ] = await self.__async_fetch_home_app_data(
+                f"delegated control preferences for {ppid}",
+                lambda ppid=ppid: self.home_app_api.async_get_delegated_control_preferences(
+                    ppid
+                ),
+                None,
+            )
+
+    async def __async_fetch_home_app_data(self, label: str, func, default):
+        try:
+            return await func()
+        except (AuthError, SessionError):
+            raise
+        except (APIError, ApiConnectionError) as exception:
+            _LOGGER.debug("Unable to fetch Home App %s: %s", label, exception)
+            return default
+
+    def __group_home_app_vehicles_by_ppid(
+        self, allocations
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        vehicles_by_ppid: Dict[str, List[Dict[str, Any]]] = {}
+
+        if not isinstance(allocations, list):
+            return vehicles_by_ppid
+
+        for allocation in allocations:
+            if not isinstance(allocation, dict):
+                continue
+
+            ppid = allocation.get("ppid")
+            vehicles = allocation.get("vehicles")
+
+            if ppid is None or not isinstance(vehicles, list):
+                continue
+
+            vehicles_by_ppid[ppid] = vehicles
+
+        return vehicles_by_ppid

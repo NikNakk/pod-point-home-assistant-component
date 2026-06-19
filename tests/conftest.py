@@ -34,6 +34,8 @@ from .fixtures import (
     CHARGES_COMPLETE_FIXTURE,
     CONNECTIVITY_STATUS_COMPLETE_FIXTURE,
     FIRMWARE_COMPLETE_FIXTURE,
+    HOME_APP_REWARD_WALLET_FIXTURE,
+    HOME_APP_VEHICLES_FIXTURE,
     POD_COMPLETE_FIXTURE,
     USER_COMPLETE_FIXTURE,
 )
@@ -113,6 +115,34 @@ def bypass_get_data_fixture():
     ), patch(
         "podpointclient.client.PodPointClient.async_get_connectivity_status",
         return_value=connectivity_status,
+    ), patch(
+        "custom_components.pod_point.home_app_client."
+        "PodPointHomeAppClient.async_get_delegated_control_vehicles",
+        return_value=HOME_APP_VEHICLES_FIXTURE,
+    ), patch(
+        "custom_components.pod_point.home_app_client."
+        "PodPointHomeAppClient.async_get_reward_wallet",
+        return_value=HOME_APP_REWARD_WALLET_FIXTURE,
+    ), patch(
+        "custom_components.pod_point.home_app_client."
+        "PodPointHomeAppClient.async_get_delegated_controls",
+        return_value={"enabled": True},
+    ), patch(
+        "custom_components.pod_point.home_app_client."
+        "PodPointHomeAppClient.async_get_charge_overrides",
+        return_value={"active": False},
+    ), patch(
+        "custom_components.pod_point.home_app_client."
+        "PodPointHomeAppClient.async_get_tariffs",
+        return_value={"currency": "GBP"},
+    ), patch(
+        "custom_components.pod_point.home_app_client."
+        "PodPointHomeAppClient.async_get_remote_lock",
+        return_value={"locked": False},
+    ), patch(
+        "custom_components.pod_point.home_app_client."
+        "PodPointHomeAppClient.async_get_delegated_control_preferences",
+        return_value={"smartCharging": True},
     ):
         yield
 

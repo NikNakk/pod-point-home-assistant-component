@@ -117,6 +117,7 @@ CHARGING_FLAG = ATTR_STATE_CHARGING
 # API Details
 BASE_API_VERSION = "v4"
 BASE_API_URL = "https://api.pod-point.com/" + BASE_API_VERSION
+HOME_APP_API_URL = "https://mobile-api.pod-point.com"
 
 # Image serving
 APP_IMAGE_URL_BASE = f"/api/{DOMAIN}/static"
