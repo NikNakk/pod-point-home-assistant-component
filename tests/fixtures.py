@@ -248,6 +248,12 @@ HOME_APP_REWARD_WALLET_FIXTURE = {
         "balanceGbp": 1.9,
         "balanceMiles": 82.6,
         "balancePoints": 190,
+        "yearToDateMiles": 82.59999999999945,
+        "yearToDateGbpEstimated": 1.9,
+        "yearToDatePoints": 190,
+        "startToDateMiles": 82.6,
+        "startToDateGbpEstimated": 1.9,
+        "startToDatePoints": 190,
     },
 }
 

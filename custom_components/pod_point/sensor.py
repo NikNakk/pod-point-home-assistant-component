@@ -125,7 +125,9 @@ async def async_setup_entry(hass, entry, async_add_devices):
 
     sensors.extend(_new_vehicle_sensors())
     sensors.append(PodPointAccountBalanceEntity(coordinator, entry))
-    sensors.append(PodPointRewardWalletEntity(coordinator, entry))
+
+    for wallet_sensor in REWARD_WALLET_SENSORS:
+        sensors.append(PodPointRewardWalletEntity(coordinator, entry, wallet_sensor))
 
     async_add_devices(sensors)
     entry.async_on_unload(
@@ -907,56 +909,82 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
         return typed_coordinator.online is True
 
 
+REWARD_WALLET_SENSORS = (
+    {
+        "key": "reward_balance",
+        "name": "Reward Balance",
+        "value_path": ("rewards", "balanceGbp"),
+        "attribute_paths": (
+            ("balanceMiles", ("rewards", "balanceMiles")),
+            ("balancePoints", ("rewards", "balancePoints")),
+        ),
+    },
+    {
+        "key": "reward_year_to_date",
+        "name": "Reward Year To Date",
+        "value_path": ("rewards", "yearToDateGbpEstimated"),
+        "attribute_paths": (
+            ("yearToDateMiles", ("rewards", "yearToDateMiles")),
+            ("yearToDatePoints", ("rewards", "yearToDatePoints")),
+        ),
+    },
+    {
+        "key": "reward_start_to_date",
+        "name": "Reward Start To Date",
+        "value_path": ("rewards", "startToDateGbpEstimated"),
+        "attribute_paths": (
+            ("startToDateMiles", ("rewards", "startToDateMiles")),
+            ("startToDatePoints", ("rewards", "startToDatePoints")),
+        ),
+    },
+    {
+        "key": "annual_allowance",
+        "name": "Annual Allowance",
+        "value_path": ("allowance", "allowancePoundsEstimated"),
+        "attribute_paths": (
+            ("annualAllowanceMiles", ("allowance", "annualAllowanceMiles")),
+            ("annualAllowancePoints", ("allowance", "annualAllowancePoints")),
+        ),
+    },
+    {
+        "key": "allowance_balance",
+        "name": "Allowance Balance",
+        "value_path": ("allowance", "balanceGbp"),
+        "attribute_paths": (
+            ("balanceMiles", ("allowance", "balanceMiles")),
+            ("balancePoints", ("allowance", "balancePoints")),
+        ),
+    },
+)
+
+
 class PodPointRewardWalletEntity(CoordinatorEntity, SensorEntity):
     """Pod Point Home App reward wallet sensor."""
 
     _attr_has_entity_name = True
-    _attr_name = "Reward Wallet"
     _attr_icon = "mdi:wallet-giftcard"
+
+    def __init__(
+        self,
+        coordinator: PodPointDataUpdateCoordinator,
+        config_entry: ConfigEntry,
+        sensor_description: Dict[str, Any],
+    ):
+        """Initialize the reward wallet sensor."""
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self.sensor_description = sensor_description
+        self._attr_name = sensor_description["name"]
 
     @property
     def native_value(self):
-        """Return the first useful scalar from the reward wallet payload."""
-        wallet = self.wallet
-
-        if not isinstance(wallet, dict):
-            return None
-
-        for path in (
-            ("rewards", "balanceGbp"),
-            ("allowance", "balanceGbp"),
-            ("payments", "totalWithdrawnGbp"),
-        ):
-            value = _get_nested(wallet, *path)
-            if isinstance(value, (int, float, str)):
-                return value
-
-        for key in (
-            "balance",
-            "availableBalance",
-            "rewardBalance",
-            "amount",
-            "value",
-            "points",
-        ):
-            value = wallet.get(key)
-            if isinstance(value, (int, float, str)):
-                return value
-
-        return None
+        """Return the GBP value for this reward wallet sensor."""
+        return self.wallet_value
 
     @property
     def native_unit_of_measurement(self):
-        """Return reward wallet units, if the API provides one."""
-        wallet = self.wallet
-
-        if not isinstance(wallet, dict):
-            return None
-
-        if _get_nested(wallet, "rewards", "balanceGbp") is not None:
-            return DEFAULT_CURRENCY
-
-        return wallet.get("currency") or wallet.get("unit")
+        """Return reward wallet units."""
+        return DEFAULT_CURRENCY
 
     @property
     def wallet(self):
@@ -967,22 +995,33 @@ class PodPointRewardWalletEntity(CoordinatorEntity, SensorEntity):
     def unique_id(self):
         """Return a unique ID to use for this entity."""
         user = self.coordinator.user
+        sensor_key = self.sensor_description["key"]
 
         if user is not None and user.account is not None:
-            return f"{user.account.uid}_reward_wallet"
+            return f"{user.account.uid}_{sensor_key}"
 
-        return "pod_point_reward_wallet"
+        return f"pod_point_{sensor_key}"
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
         attrs = {"attribution": ATTRIBUTION, "integration": DOMAIN}
 
-        if isinstance(self.wallet, dict):
-            attrs.update(self.wallet)
-        else:
+        if not isinstance(self.wallet, dict):
             attrs["raw"] = self.wallet
+            return attrs
+
+        for attribute_name, path in self.sensor_description["attribute_paths"]:
+            attrs[attribute_name] = _get_nested(self.wallet, *path)
 
         return attrs
+
+    @property
+    def wallet_value(self):
+        """Return this sensor's value from the cached wallet payload."""
+        if not isinstance(self.wallet, dict):
+            return None
+
+        return _get_nested(self.wallet, *self.sensor_description["value_path"])
 
     @property
     def available(self) -> bool:

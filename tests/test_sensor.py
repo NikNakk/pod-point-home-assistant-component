@@ -82,7 +82,7 @@ async def test_sensor_creation(hass, bypass_get_data):
 
     (_, sensors) = await setup_sensors(hass)
 
-    assert 14 == len(sensors)
+    assert 18 == len(sensors)
 
 
 @pytest.mark.asyncio
@@ -493,41 +493,82 @@ async def test_home_app_vehicle_sensors(hass, bypass_get_data):
 
 
 @pytest.mark.asyncio
-async def test_reward_wallet_sensor(hass, bypass_get_data):
-    """Tests for Home App reward wallet sensor."""
+async def test_reward_wallet_sensors(hass, bypass_get_data):
+    """Tests for Home App reward wallet sensors."""
     (_, sensors) = await setup_sensors(hass)
 
-    reward_wallet: PodPointRewardWalletEntity = sensors[13]
+    reward_balance: PodPointRewardWalletEntity = sensors[13]
+    reward_year_to_date: PodPointRewardWalletEntity = sensors[14]
+    reward_start_to_date: PodPointRewardWalletEntity = sensors[15]
+    annual_allowance: PodPointRewardWalletEntity = sensors[16]
+    allowance_balance: PodPointRewardWalletEntity = sensors[17]
 
     assert (
-        "1a756c9b-dfac-4c2a-ba13-9cdcc2399366_reward_wallet"
-        == reward_wallet.unique_id
+        "1a756c9b-dfac-4c2a-ba13-9cdcc2399366_reward_balance"
+        == reward_balance.unique_id
     )
-    assert "Reward Wallet" == reward_wallet.name
-    assert 1.9 == reward_wallet.native_value
-    assert "GBP" == reward_wallet.native_unit_of_measurement
-    assert reward_wallet.extra_state_attributes == {
-        "allowance": {
-            "allowancePoundsEstimated": 103.5,
-            "annualAllowanceMiles": 4500,
-            "annualAllowancePoints": None,
-            "balanceGbp": 101.61,
-            "balanceMiles": 4417.4,
-            "balancePoints": None,
-        },
+    assert "Reward Balance" == reward_balance.name
+    assert 1.9 == reward_balance.native_value
+    assert "GBP" == reward_balance.native_unit_of_measurement
+    assert reward_balance.extra_state_attributes == {
         "attribution": "Data provided by https://pod-point.com/",
         "integration": "pod_point",
-        "payments": {
-            "thresholdGbp": 10,
-            "totalWithdrawnGbp": 0,
-        },
-        "rewards": {
-            "balanceGbp": 1.9,
-            "balanceMiles": 82.6,
-            "balancePoints": 190,
-        },
+        "balanceMiles": 82.6,
+        "balancePoints": 190,
     }
-    assert reward_wallet.available is True
+    assert reward_balance.available is True
+
+    assert (
+        "1a756c9b-dfac-4c2a-ba13-9cdcc2399366_reward_year_to_date"
+        == reward_year_to_date.unique_id
+    )
+    assert "Reward Year To Date" == reward_year_to_date.name
+    assert 1.9 == reward_year_to_date.native_value
+    assert reward_year_to_date.extra_state_attributes == {
+        "attribution": "Data provided by https://pod-point.com/",
+        "integration": "pod_point",
+        "yearToDateMiles": 82.59999999999945,
+        "yearToDatePoints": 190,
+    }
+
+    assert (
+        "1a756c9b-dfac-4c2a-ba13-9cdcc2399366_reward_start_to_date"
+        == reward_start_to_date.unique_id
+    )
+    assert "Reward Start To Date" == reward_start_to_date.name
+    assert 1.9 == reward_start_to_date.native_value
+    assert reward_start_to_date.extra_state_attributes == {
+        "attribution": "Data provided by https://pod-point.com/",
+        "integration": "pod_point",
+        "startToDateMiles": 82.6,
+        "startToDatePoints": 190,
+    }
+
+    assert (
+        "1a756c9b-dfac-4c2a-ba13-9cdcc2399366_annual_allowance"
+        == annual_allowance.unique_id
+    )
+    assert "Annual Allowance" == annual_allowance.name
+    assert 103.5 == annual_allowance.native_value
+    assert annual_allowance.extra_state_attributes == {
+        "attribution": "Data provided by https://pod-point.com/",
+        "integration": "pod_point",
+        "annualAllowanceMiles": 4500,
+        "annualAllowancePoints": None,
+    }
+
+    assert (
+        "1a756c9b-dfac-4c2a-ba13-9cdcc2399366_allowance_balance"
+        == allowance_balance.unique_id
+    )
+    assert "Allowance Balance" == allowance_balance.name
+    assert 101.61 == allowance_balance.native_value
+    assert allowance_balance.extra_state_attributes == {
+        "attribution": "Data provided by https://pod-point.com/",
+        "integration": "pod_point",
+        "balanceMiles": 4417.4,
+        "balancePoints": None,
+    }
 
 
 @pytest.mark.asyncio
