@@ -63,6 +63,10 @@ class PodPointSmartChargingPrioritySelect(PodPointEntity, SelectEntity):
             return PRIORITISE_COMPLETE_CHARGE
         return None
 
+    @property
+    def available(self) -> bool:
+        return super().available and self.smart_charging_active
+
     async def async_select_option(self, option: str) -> None:
         prices = _tariff_prices(self.coordinator, self.pod.ppid)
         price = min(prices) if option == PRIORITISE_LOWEST_COST else max(prices)

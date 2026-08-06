@@ -895,6 +895,10 @@ class PodPointSmartChargingMaxPriceSensor(PodPointEntity, SensorEntity):
         return preferences.max_price if preferences is not None else None
 
     @property
+    def available(self) -> bool:
+        return super().available and self.smart_charging_active
+
+    @property
     def native_unit_of_measurement(self):
         currency = self.config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
         return f"{currency}/kWh"

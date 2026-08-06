@@ -167,7 +167,8 @@ use the legacy controls.
 
 The Smart charging priority selector mirrors the app. “Prioritise a complete
 charge” sets the preference to the highest configured tariff-period price, while
-“Prioritise lowest cost” sets it to the lowest price.
+“Prioritise lowest cost” sets it to the lowest price. The priority selector and
+maximum-price entities are unavailable while the charger is in basic mode.
 
 The Basic charging mode selector is available only while delegated smart charging
 is inactive. An open-ended charger override is shown as Always on, no active

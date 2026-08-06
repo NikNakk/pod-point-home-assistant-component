@@ -315,6 +315,12 @@ class PodPointEntity(CoordinatorEntity):
             ATTR_STATE_SUSPENDED_EVSE,
         )
 
+    @property
+    def smart_charging_active(self) -> bool:
+        """Return whether delegated smart charging is active for this charger."""
+        control = self.coordinator.delegated_controls.get(self.pod.ppid)
+        return control is not None and control.status == "ACTIVE"
+
     @staticmethod
     def compare_state(state, pod_state) -> str:
         """Given two states, which one is most important"""

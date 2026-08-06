@@ -11,6 +11,7 @@ from custom_components.pod_point.select import (
     BASIC_MODE_ALWAYS_ON,
     BASIC_MODE_SCHEDULED,
     PodPointBasicChargingModeSelect,
+    PodPointSmartChargingPrioritySelect,
     _tariff_prices,
 )
 
@@ -74,6 +75,21 @@ async def test_basic_mode_state_and_availability(hass, bypass_get_data):
     coordinator.charge_overrides[ppid] = []
     coordinator.delegated_controls[ppid] = SimpleNamespace(status="ACTIVE")
     assert entity.available is False
+
+
+@pytest.mark.asyncio
+async def test_smart_priority_unavailable_in_basic_mode(hass, bypass_get_data):
+    """Smart-only preferences are unavailable while basic mode is active."""
+    coordinator, basic_entity = await setup_basic_mode_select(hass)
+    entity = PodPointSmartChargingPrioritySelect(
+        coordinator, basic_entity.config_entry, 0
+    )
+    ppid = entity.pod.ppid
+
+    coordinator.delegated_controls[ppid] = SimpleNamespace(status="INACTIVE")
+    assert entity.available is False
+    coordinator.delegated_controls[ppid] = SimpleNamespace(status="ACTIVE")
+    assert entity.available is True
 
 
 @pytest.mark.asyncio

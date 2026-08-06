@@ -43,6 +43,10 @@ class PodPointSmartChargingMaxPriceNumber(PodPointEntity, NumberEntity):
         preferences = self.coordinator.smart_charging_preferences.get(self.pod.ppid)
         return preferences.max_price if preferences is not None else None
 
+    @property
+    def available(self) -> bool:
+        return super().available and self.smart_charging_active
+
     async def async_set_native_value(self, value: float) -> None:
         charger = self.coordinator.chargers[self.pod.ppid]
         await self.coordinator.api.async_set_smart_charging_max_price(charger, value)
