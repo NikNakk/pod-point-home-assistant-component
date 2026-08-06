@@ -39,6 +39,7 @@ from .const import (
     ICON,
     ICON_1C,
     ICON_2C,
+    NAME,
 )
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
@@ -694,6 +695,14 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
     _attr_icon = "mdi:account-cash"
     _attr_available = False
 
+    def __init__(self, coordinator, config_entry):
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+
+    @property
+    def device_info(self):
+        return _account_device_info(self.config_entry)
+
     @property
     def native_value(self):
         """Return the value of the balance sensor"""
@@ -772,6 +781,10 @@ class PodPointRewardBalanceSensor(CoordinatorEntity, SensorEntity):
         return f"{DOMAIN}_{self.config_entry.entry_id}_reward_{self.section}_balance"
 
     @property
+    def device_info(self):
+        return _account_device_info(self.config_entry)
+
+    @property
     def native_value(self):
         data = getattr(self.coordinator.reward_wallet, self.section, {})
         return data.get("balanceGbp")
@@ -783,6 +796,13 @@ class PodPointRewardBalanceSensor(CoordinatorEntity, SensorEntity):
     @property
     def extra_state_attributes(self):
         return getattr(self.coordinator.reward_wallet, self.section, {})
+
+    @property
+    def available(self) -> bool:
+        return (
+            self.coordinator.online is True
+            and self.coordinator.reward_wallet is not None
+        )
 
 
 class PodPointRewardPointsSensor(CoordinatorEntity, SensorEntity):
@@ -801,12 +821,35 @@ class PodPointRewardPointsSensor(CoordinatorEntity, SensorEntity):
         return f"{DOMAIN}_{self.config_entry.entry_id}_reward_points"
 
     @property
+    def device_info(self):
+        return _account_device_info(self.config_entry)
+
+    @property
     def native_value(self):
-        return self.coordinator.reward_wallet.rewards.get("balancePoints")
+        wallet = self.coordinator.reward_wallet
+        return wallet.rewards.get("balancePoints") if wallet is not None else None
 
     @property
     def extra_state_attributes(self):
-        return self.coordinator.reward_wallet.payments
+        wallet = self.coordinator.reward_wallet
+        return wallet.payments if wallet is not None else {}
+
+    @property
+    def available(self) -> bool:
+        return (
+            self.coordinator.online is True
+            and self.coordinator.reward_wallet is not None
+        )
+
+
+def _account_device_info(config_entry):
+    """Return the shared virtual device for account-level Pod Point entities."""
+    return {
+        "identifiers": {(DOMAIN, f"account_{config_entry.entry_id}")},
+        "name": "Pod Point Account",
+        "manufacturer": NAME,
+        "model": "Pod Home account",
+    }
 
 
 class PodPointCheapestTariffSensor(PodPointEntity, SensorEntity):

@@ -154,6 +154,10 @@ When available for your account, Home Assistant also creates:
 * An editable smart-charging maximum-price number entity.
 * Delegated vehicle battery, Pod Home smart-charging, and off-mode sensors.
 
+Account balance and reward-wallet entities are grouped on a virtual **Pod Point
+Account** device. The reward entities and device are only created when the wallet
+API returns data for the account.
+
 The existing `charge_now` and `stop_charge_now` services create and remove Pod
 Home charger boosts. The legacy Charging Allowed and Smart Charge Mode switches
 are not created for Pod Home chargers because those legacy write endpoints return

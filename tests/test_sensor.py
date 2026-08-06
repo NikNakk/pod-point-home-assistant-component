@@ -19,6 +19,7 @@ from homeassistant.const import (
 import homeassistant.helpers.aiohttp_client as client
 from podpointclient.charge_override import ChargeOverride
 from podpointclient.pod import Pod
+from podpointclient.reward_wallet import RewardWallet
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -52,9 +53,10 @@ from .fixtures import POD_COMPLETE_FIXTURE
 from .test_coordinator import subject_with_data as coordinator_with_data
 
 
-async def setup_sensors(hass) -> List[PodPointSensor]:
+async def setup_sensors(hass, reward_wallet=None) -> List[PodPointSensor]:
     """Setup sensors within the test environment"""
     coordinator = await coordinator_with_data(hass)
+    coordinator.reward_wallet = reward_wallet
 
     # Create a mock entry so we don't have to go through config flow
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
@@ -84,11 +86,35 @@ async def test_sensor_creation(hass, bypass_get_data):
 
 
 @pytest.mark.asyncio
+async def test_reward_wallet_sensors(hass, bypass_get_data):
+    """Wallet model attributes populate the account reward entities."""
+    wallet = RewardWallet(
+        {
+            "allowance": {"balanceGbp": 95.15},
+            "rewards": {"balanceGbp": 8.36, "balancePoints": 836},
+            "payments": {"thresholdGbp": 10, "totalWithdrawnGbp": 0},
+        }
+    )
+    (_, sensors) = await setup_sensors(hass, reward_wallet=wallet)
+
+    assert len(sensors) == 14
+    assert sensors[11].native_value == 8.36
+    assert sensors[12].native_value == 95.15
+    assert sensors[13].native_value == 836
+    assert sensors[13].extra_state_attributes == {
+        "thresholdGbp": 10,
+        "totalWithdrawnGbp": 0,
+    }
+    assert sensors[11].device_info == sensors[13].device_info
+    assert sensors[11].device_info["name"] == "Pod Point Account"
+
+
+@pytest.mark.asyncio
 async def test_status_pod_sensor(hass, bypass_get_data):
     """Tests for pod status sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [status, _, _, _, _, _, _, _, _, _, _] = sensors
+    status = sensors[0]
 
     assert SensorDeviceClass.ENUM == status.device_class
     assert "pod_point_12234_PSL-123456_status" == status.unique_id
@@ -134,7 +160,7 @@ async def test_total_energy_pod_sensor(hass, bypass_get_data):
     (_, sensors) = await setup_sensors(hass)
 
     total_energy: PodPointTotalEnergySensor
-    [_, _, total_energy, _, _, _, _, _, _, _, _] = sensors
+    total_energy = sensors[2]
 
     total_energy.async_write_ha_state = Mock()
     total_energy._handle_coordinator_update()
@@ -171,7 +197,7 @@ async def test_current_energy_pod_sensor(hass, bypass_get_data):
     """Tests for pod current energy sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, _, _, current_energy, _, _, _, _, _, _, _] = sensors
+    current_energy = sensors[3]
 
     assert (
         "pod_point_12234_PSL-123456_status_total_energy_current_charge_energy"
@@ -196,7 +222,7 @@ async def test_total_charge_time_pod_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, charge_time, _, _, _, _, _, _, _, _, _] = sensors
+    charge_time = sensors[1]
 
     assert "pod_point_12234_PSL-123456_charge_time" == charge_time.unique_id
 
@@ -257,7 +283,7 @@ async def test_total_cost_pod_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, _, _, _, _, _, total_cost, _, _, _, _] = sensors
+    total_cost = sensors[6]
 
     assert "pod_point_12234_PSL-123456_total_cost" == total_cost.unique_id
 
@@ -317,7 +343,7 @@ async def test_last_charge_cost_pod_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, _, _, _, _, _, _, last_charge, _, _, _] = sensors
+    last_charge = sensors[7]
 
     assert (
         "pod_point_12234_PSL-123456_last_complete_charge_cost" == last_charge.unique_id
@@ -360,7 +386,7 @@ async def test_balance_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, _, _, _, _, _, _, _, _, _, balance] = sensors
+    balance = sensors[10]
 
     assert "1a756c9b-dfac-4c2a-ba13-9cdcc2399366" == balance.unique_id
 
@@ -383,7 +409,7 @@ async def test_charge_mode_sensor(hass, bypass_get_data):
     (_, sensors) = await setup_sensors(hass)
 
     override: PodPointChargeOverrideEntity
-    [_, _, _, _, _, _, _, _, _, override, _] = sensors
+    override = sensors[9]
 
     assert "pod_point_12234_PSL-123456_override_end_time" == override.unique_id
 
@@ -413,7 +439,7 @@ async def test_charge_override_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, _, _, _, _, _, mode, _, _, _, _] = sensors
+    mode = sensors[8]
 
     assert "pod_point_12234_PSL-123456_charge_mode" == mode.unique_id
 
@@ -430,7 +456,7 @@ async def test_charge_override_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, _, _, _, signal_strength, _, _, _, _, _, _] = sensors
+    signal_strength = sensors[4]
 
     assert "pod_point_12234_PSL-123456_signal_strength" == signal_strength.unique_id
 
@@ -452,7 +478,7 @@ async def test_last_message_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
-    [_, _, _, _, _, last_message, _, _, _, _, _] = sensors
+    last_message = sensors[5]
 
     assert "pod_point_12234_PSL-123456_last_message_at" == last_message.unique_id
 
