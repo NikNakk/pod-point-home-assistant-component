@@ -32,8 +32,9 @@ Platform | Description
 `sensor` (Signal Strength) | Shows WiFi signal strength of a given pod.
 `sensor` (Last message received) | When was a message last received from a given pod.
 `sensor` (Cloud connection status) | Status of pods connection to the cloud.
-`switch` (****Allow Charging) | Enable/disable charging by enabling/disabling a schedule.
-`switch` (Smart Charge Mode) | Enable the switch for 'Smart' charge mode, disable it for 'Manual' charge mode.
+`select` (Smart charging priority) | Prioritise a complete charge or the lowest tariff cost.
+`switch` (****Allow Charging) | Legacy chargers only: enable/disable charging using schedules.
+`switch` (Smart Charge Mode) | Legacy chargers only: switch between Smart and Manual modes.
 `update` (Firmware Update) | Shows the current firmware version for your device and alerts if an update is available
 
 > ***Total cost is based on the energy provider and kWh cost set in Pod Point.**
@@ -153,9 +154,15 @@ When available for your account, Home Assistant also creates:
 * An editable smart-charging maximum-price number entity.
 * Delegated vehicle battery, Pod Home smart-charging, and off-mode sensors.
 
-The existing `charge_now` and `stop_charge_now` services now create and remove
-Pod Home charger boosts. Accounts or chargers that have not yet moved to the new
-API continue to use the legacy override endpoint.
+The existing `charge_now` and `stop_charge_now` services create and remove Pod
+Home charger boosts. The legacy Charging Allowed and Smart Charge Mode switches
+are not created for Pod Home chargers because those legacy write endpoints return
+HTTP 403. Accounts or chargers that have not yet moved to the new API continue to
+use the legacy controls.
+
+The Smart charging priority selector mirrors the app. “Prioritise a complete
+charge” sets the preference to the highest configured tariff-period price, while
+“Prioritise lowest cost” sets it to the lowest price.
 
 ## Cost sensors
 

@@ -25,6 +25,11 @@ async def async_setup_entry(hass, entry, async_add_devices):
     switches = []
 
     for i in range(len(coordinator.data)):
+        # Pod Home rejects the legacy schedule and charge-mode write endpoints
+        # with HTTP 403. Boosts are provided by the charge_now services instead.
+        if coordinator.data[i].ppid in coordinator.chargers:
+            continue
+
         charging_allowed_switch = PodPointChargingAllowedSwitch(coordinator, entry, i)
         charge_mode_switch = PodPointChargeModeSwitch(coordinator, entry, i)
 
