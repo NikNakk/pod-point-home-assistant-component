@@ -4,7 +4,7 @@ Data coordinator for pod point client
 
 from datetime import datetime, timedelta
 import logging
-from typing import Dict, List, Set, Tuple
+from typing import Any, Awaitable, Dict, List, Set, Tuple
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -45,6 +45,16 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         self.online = None
         self.firmware_refresh = 1  # Initial refresh will be a firmware refresh too, ensuring we pull firmware for all pods at startup
         self.user: User = None
+        # Data exposed by the charger-centric Pod Home API.  These maps are keyed
+        # by PPID so existing Pod based entities keep their stable identifiers.
+        self.chargers: Dict[str, Any] = {}
+        self.connectivity_v2: Dict[str, Any] = {}
+        self.tariffs: Dict[str, List[Any]] = {}
+        self.charge_overrides: Dict[str, List[Any]] = {}
+        self.smart_charging_preferences: Dict[str, Any] = {}
+        self.remote_locks: Dict[str, Any] = {}
+        self.delegated_vehicles: Dict[str, Any] = {}
+        self.reward_wallet: Any = None
         self.last_message_at = datetime(1970, 1, 1, 0, 0, 0, 0, pytz.UTC)
 
         super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=scan_interval)
@@ -59,6 +69,11 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
             self.user = await self.api.async_get_user()
 
             new_pods = await self.__async_update_pods()
+
+            # Load Pod Home data before deriving entity state. Optional endpoints
+            # are deliberately isolated: not every account has Rewards, a tariff,
+            # or delegated smart charging enabled.
+            await self.__async_update_pod_home_data(new_pods)
 
             _LOGGER.debug(
                 "=== POD UPDATE ===\nFound Pods: %s\nPrevious Pods: %s",
@@ -370,9 +385,20 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
     ) -> Dict[str, Pod]:
         _LOGGER.debug("=== POD CONNECTION STATUS UPDATE ===")
 
-        # flat_pods = [item for row in new_pods_by_id.values() for item in row]
         # Fetch connection status for each pod
         for pod in new_pods_by_id.values():
+            connectivity_status_v2 = self.connectivity_v2.get(pod.ppid)
+            if connectivity_status_v2 is not None:
+                pod.connectivity_status_v2 = connectivity_status_v2
+                pod.last_message_at = connectivity_status_v2.last_seen_at
+                pod.charging_state = self.__normalise_state(
+                    connectivity_status_v2.charging_state
+                )
+                new_pods_by_id[pod.unit_id] = pod
+                continue
+
+            # Retain the legacy endpoint as a fallback for chargers which have
+            # not yet been migrated to the Pod Home API.
             connectivity_status = await self.api.async_get_connectivity_status(pod=pod)
 
             if connectivity_status is not None:
@@ -386,3 +412,62 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
                 new_pods_by_id[pod.unit_id] = pod
 
         return new_pods_by_id
+
+    async def __async_optional(self, awaitable: Awaitable, default: Any, name: str):
+        """Resolve an account-dependent Pod Home endpoint without failing polling."""
+        try:
+            return await awaitable
+        except (AuthError, SessionError):
+            raise
+        except Exception as exception:  # Pod Home returns 404 for unavailable features
+            _LOGGER.debug("Pod Home endpoint %s is unavailable: %s", name, exception)
+            return default
+
+    async def __async_update_pod_home_data(self, pods: List[Pod]) -> None:
+        """Fetch charger-centric Pod Home state and associate it with legacy pods."""
+        if not hasattr(self.api, "async_get_chargers"):
+            return
+
+        chargers = await self.api.async_get_chargers()
+        self.chargers = {charger.ppid: charger for charger in chargers}
+
+        delegated = await self.__async_optional(
+            self.api.async_get_delegated_vehicles(), [], "delegated vehicles"
+        )
+        self.delegated_vehicles = {item.ppid: item for item in delegated}
+        self.reward_wallet = await self.__async_optional(
+            self.api.async_get_reward_wallet(), None, "reward wallet"
+        )
+
+        for pod in pods:
+            charger = self.chargers.get(pod.ppid)
+            if charger is None:
+                continue
+
+            self.connectivity_v2[pod.ppid] = await self.__async_optional(
+                self.api.async_get_connectivity_status_v2(charger),
+                None,
+                f"connectivity for {pod.ppid}",
+            )
+            self.tariffs[pod.ppid] = await self.__async_optional(
+                self.api.async_get_tariffs(charger), [], f"tariffs for {pod.ppid}"
+            )
+            self.charge_overrides[pod.ppid] = await self.__async_optional(
+                self.api.async_get_charger_charge_overrides(charger, active_only=True),
+                [],
+                f"charge overrides for {pod.ppid}",
+            )
+            self.smart_charging_preferences[pod.ppid] = await self.__async_optional(
+                self.api.async_get_smart_charging_preferences(charger),
+                None,
+                f"smart charging preferences for {pod.ppid}",
+            )
+            self.remote_locks[pod.ppid] = await self.__async_optional(
+                self.api.async_get_remote_lock(charger),
+                None,
+                f"remote lock for {pod.ppid}",
+            )
+
+    @staticmethod
+    def __normalise_state(state: str | None) -> str | None:
+        return state.lower().replace("_", "-") if state is not None else None

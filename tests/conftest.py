@@ -17,6 +17,7 @@
 # pytest includes fixtures OOB which you can use as defined on this page)
 from re import M
 import sys
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -92,6 +93,16 @@ def bypass_get_data_fixture():
 
     print(connectivity_status)
 
+    charger = SimpleNamespace(
+        ppid=pod.ppid, unit_id=pod.unit_id, delegated_control_status=None
+    )
+    connectivity_v2 = SimpleNamespace(
+        connection_state="ONLINE",
+        connection_quality=3,
+        charging_state="CHARGING",
+        last_seen_at=pod.last_contact_at,
+    )
+
     with patch(
         "podpointclient.client.PodPointClient.async_get_all_pods", return_value=pods
     ), patch(
@@ -113,6 +124,27 @@ def bypass_get_data_fixture():
     ), patch(
         "podpointclient.client.PodPointClient.async_get_connectivity_status",
         return_value=connectivity_status,
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_chargers",
+        return_value=[charger],
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_connectivity_status_v2",
+        return_value=connectivity_v2,
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_tariffs", return_value=[]
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_charger_charge_overrides",
+        return_value=[],
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_smart_charging_preferences",
+        return_value=None,
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_remote_lock", return_value=None
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_delegated_vehicles",
+        return_value=[],
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_reward_wallet", return_value=None
     ):
         yield
 

@@ -107,7 +107,7 @@ async def handle_charge_now(
     if len(pods) == 1:
         pod = pods[0]
     else:
-        PodPointServiceException(
+        raise PodPointServiceException(
             f"Service only supports accounts with 1 Pod attached, found {len(pods)} Pods!"
         )
 
@@ -125,9 +125,15 @@ async def handle_charge_now(
             "Please pass an hours, minutes or seconds value. Cannot set 'charge now' with 0 values."
         )
 
-    await api.async_set_charge_override(
-        pod=pod, hours=hours, minutes=minutes, seconds=seconds
-    )
+    charger = coordinator.chargers.get(pod.ppid)
+    if charger is not None:
+        await api.async_create_charger_charge_override(
+            charger=charger, hours=hours, minutes=minutes, seconds=seconds
+        )
+    else:
+        await api.async_set_charge_override(
+            pod=pod, hours=hours, minutes=minutes, seconds=seconds
+        )
 
     coordinator.last_message_at = datetime.now(pytz.UTC)
     await coordinator.async_request_refresh()
@@ -143,11 +149,15 @@ async def handle_stop_charge_now(
     if len(pods) == 1:
         pod = pods[0]
     else:
-        PodPointServiceException(
+        raise PodPointServiceException(
             f"Service only supports accounts with 1 Pod attached, found {len(pods)} Pods!"
         )
 
-    await api.async_delete_charge_override(pod=pod)
+    charger = coordinator.chargers.get(pod.ppid)
+    if charger is not None:
+        await api.async_delete_charger_charge_overrides(charger=charger)
+    else:
+        await api.async_delete_charge_override(pod=pod)
 
     coordinator.last_message_at = datetime.now(pytz.UTC)
     await coordinator.async_request_refresh()

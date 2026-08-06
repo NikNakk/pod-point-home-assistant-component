@@ -66,20 +66,40 @@ async def async_setup_entry(hass, entry, async_add_devices):
         pplcccs = PodPointLastCompleteChargeCostSensor(coordinator, entry, i)
         charge_mode = PodPointChargeModeEntity(coordinator, entry, i)
         charge_override = PodPointChargeOverrideEntity(coordinator, entry, i)
-        balance = PodPointAccountBalanceEntity(coordinator, entry)
 
         sensors.append(pps)
         sensors.append(ppcts)
         sensors.append(pptes)
         sensors.append(ppces)
         sensors.append(ppsss)
+        if coordinator.connectivity_v2.get(coordinator.data[i].ppid) is not None:
+            sensors.append(PodPointConnectionQualitySensor(coordinator, entry, i))
         sensors.append(pplmrs)
         sensors.append(pptcs)
         sensors.append(pplcccs)
         sensors.append(charge_mode)
         sensors.append(charge_override)
 
-        sensors.append(balance)
+    sensors.append(PodPointAccountBalanceEntity(coordinator, entry))
+
+    if coordinator.reward_wallet is not None:
+        sensors.extend(
+            [
+                PodPointRewardBalanceSensor(coordinator, entry, "rewards"),
+                PodPointRewardBalanceSensor(coordinator, entry, "allowance"),
+                PodPointRewardPointsSensor(coordinator, entry),
+            ]
+        )
+
+    for i in range(len(coordinator.data)):
+        ppid = coordinator.data[i].ppid
+        if coordinator.tariffs.get(ppid):
+            sensors.append(PodPointCheapestTariffSensor(coordinator, entry, i))
+        if coordinator.smart_charging_preferences.get(ppid) is not None:
+            sensors.append(PodPointSmartChargingMaxPriceSensor(coordinator, entry, i))
+        delegated = coordinator.delegated_vehicles.get(ppid)
+        if delegated is not None and delegated.vehicles:
+            sensors.append(PodPointVehicleBatterySensor(coordinator, entry, i))
 
     async_add_devices(sensors)
 
@@ -222,6 +242,14 @@ class PodPointSignalStrengthSensor(
         return self.extra_state_attributes["signal_strength"]
 
     @property
+    def available(self) -> bool:
+        """Legacy RSSI is not supplied by the Pod Home connectivity endpoint."""
+        return (
+            super().available
+            and self.coordinator.connectivity_v2.get(self.pod.ppid) is None
+        )
+
+    @property
     def native_unit_of_measurement(self):
         return SIGNAL_STRENGTH_DECIBELS
 
@@ -286,6 +314,24 @@ class PodPointSignalStrengthSensor(
             if has_connection_quality
             else 0
         )
+
+
+class PodPointConnectionQualitySensor(PodPointEntity, SensorEntity):
+    """Pod Home connection quality level."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Connection quality"
+    _attr_icon = "mdi:wifi"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def unique_id(self):
+        return f"{super().unique_id}_connection_quality"
+
+    @property
+    def native_value(self):
+        status = self.coordinator.connectivity_v2.get(self.pod.ppid)
+        return status.connection_quality if status is not None else None
 
 
 class PodPointLastMessageReceivedSensor(
@@ -509,9 +555,15 @@ class PodPointChargeOverrideEntity(
     @property
     def native_value(self):
         """Return the native value of the sensor."""
+        overrides = self.coordinator.charge_overrides.get(self.pod.ppid, [])
+        if overrides:
+            return max(
+                (override.end_at for override in overrides if override.end_at is not None),
+                default=None,
+            )
+
         value = None
         override: ChargeOverride = self.pod.charge_override
-
         if override is not None:
             value = override.ends_at
 
@@ -700,3 +752,137 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         typed_coordinator: PodPointDataUpdateCoordinator = self.coordinator
         return typed_coordinator.online is True
+
+
+class PodPointRewardBalanceSensor(CoordinatorEntity, SensorEntity):
+    """Reward wallet cash balance."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_icon = "mdi:wallet-giftcard"
+
+    def __init__(self, coordinator, config_entry, section: str):
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+        self.section = section
+        self._attr_name = "Reward balance" if section == "rewards" else "Reward allowance"
+
+    @property
+    def unique_id(self):
+        return f"{DOMAIN}_{self.config_entry.entry_id}_reward_{self.section}_balance"
+
+    @property
+    def native_value(self):
+        data = getattr(self.coordinator.reward_wallet, self.section, {})
+        return data.get("balanceGbp")
+
+    @property
+    def native_unit_of_measurement(self):
+        return self.config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+
+    @property
+    def extra_state_attributes(self):
+        return getattr(self.coordinator.reward_wallet, self.section, {})
+
+
+class PodPointRewardPointsSensor(CoordinatorEntity, SensorEntity):
+    """Reward points balance."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Reward points"
+    _attr_icon = "mdi:star-circle"
+
+    def __init__(self, coordinator, config_entry):
+        super().__init__(coordinator)
+        self.config_entry = config_entry
+
+    @property
+    def unique_id(self):
+        return f"{DOMAIN}_{self.config_entry.entry_id}_reward_points"
+
+    @property
+    def native_value(self):
+        return self.coordinator.reward_wallet.rewards.get("balancePoints")
+
+    @property
+    def extra_state_attributes(self):
+        return self.coordinator.reward_wallet.payments
+
+
+class PodPointCheapestTariffSensor(PodPointEntity, SensorEntity):
+    """Cheapest configured Pod Home tariff rate."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Cheapest tariff"
+    _attr_icon = "mdi:cash-clock"
+
+    @property
+    def unique_id(self):
+        return f"{super().unique_id}_cheapest_tariff"
+
+    @property
+    def native_value(self):
+        prices = [
+            tariff.cheapest_unit_price
+            for tariff in self.coordinator.tariffs.get(self.pod.ppid, [])
+            if tariff.cheapest_unit_price is not None
+        ]
+        return min(prices) if prices else None
+
+    @property
+    def native_unit_of_measurement(self):
+        currency = self.config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+        return f"{currency}/kWh"
+
+
+class PodPointSmartChargingMaxPriceSensor(PodPointEntity, SensorEntity):
+    """Maximum price used by Pod Home smart charging."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Smart charging maximum price"
+    _attr_icon = "mdi:ev-station"
+
+    @property
+    def unique_id(self):
+        return f"{super().unique_id}_smart_charging_max_price"
+
+    @property
+    def native_value(self):
+        preferences = self.coordinator.smart_charging_preferences.get(self.pod.ppid)
+        return preferences.max_price if preferences is not None else None
+
+    @property
+    def native_unit_of_measurement(self):
+        currency = self.config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+        return f"{currency}/kWh"
+
+
+class PodPointVehicleBatterySensor(PodPointEntity, SensorEntity):
+    """Battery level supplied by delegated smart charging."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Vehicle battery"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    @property
+    def unique_id(self):
+        return f"{super().unique_id}_vehicle_battery"
+
+    @property
+    def vehicle_link(self):
+        delegated = self.coordinator.delegated_vehicles.get(self.pod.ppid)
+        if delegated is None or not delegated.vehicles:
+            return None
+        return next((item for item in delegated.vehicles if item.is_primary), delegated.vehicles[0])
+
+    @property
+    def native_value(self):
+        link = self.vehicle_link
+        return link.vehicle.charge_state.battery_level_percent if link else None
+
+    @property
+    def extra_state_attributes(self):
+        link = self.vehicle_link
+        return link.dict if link else {}

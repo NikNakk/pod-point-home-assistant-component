@@ -34,6 +34,7 @@
                 "data": {
                     "binary_sensor": "Cable status sensor enabled.",
                     "sensor": "Pod status, energy and cost sensors enabled.",
+                    "number": "Smart charging controls enabled.",
                     "switch": "Charging switch enabled.",
                     "scan_interval": "Poll interval (seconds)",
                     "http_debug": "Enable verbose HTTP logging.",

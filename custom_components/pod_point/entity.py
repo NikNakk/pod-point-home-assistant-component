@@ -67,8 +67,12 @@ class PodPointEntity(CoordinatorEntity):
         attrs.update(pod.dict)
 
         state = None
-        for status in pod.statuses:
-            state = self.compare_state(state, status.key_name)
+        connectivity_v2 = self.coordinator.connectivity_v2.get(pod.ppid)
+        if connectivity_v2 is not None and connectivity_v2.charging_state is not None:
+            state = self.compare_state(state, connectivity_v2.charging_state)
+        else:
+            for status in pod.statuses:
+                state = self.compare_state(state, status.key_name)
 
         is_available_state = (state == ATTR_STATE_AVAILABLE) or (
             state == ATTR_STATE_IDLE

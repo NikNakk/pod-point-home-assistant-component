@@ -139,6 +139,24 @@ If you want to add Pod Point stats to the built in energy dashboard, you should 
 
 > *Note:* The Pod Point APIs perform some rounding on the kWh values returned meaning they may be sightly lower than the true energy consumed. We are unable to address this within the component.
 
+## Pod Home features
+
+The integration uses the charger-centric Pod Home endpoints for live connectivity
+and charging state, boosts, tariffs, delegated smart charging, remote off-mode,
+and the reward wallet. Existing Pod entities retain their unique IDs during the
+migration.
+
+When available for your account, Home Assistant also creates:
+
+* Reward cash balance, allowance, and points sensors.
+* Cheapest tariff and smart-charging maximum-price sensors.
+* An editable smart-charging maximum-price number entity.
+* Delegated vehicle battery, Pod Home smart-charging, and off-mode sensors.
+
+The existing `charge_now` and `stop_charge_now` services now create and remove
+Pod Home charger boosts. Accounts or chargers that have not yet moved to the new
+API continue to use the legacy override endpoint.
+
 ## Cost sensors
 
 In order to provide the `Total Cost` and `Last Completed Charge Cost` sensors, we are using `energy_cost` values provided from Pod Point per ***completed* charge. There are some caveats to bare in mind here:

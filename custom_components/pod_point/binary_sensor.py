@@ -33,6 +33,12 @@ async def async_setup_entry(hass, entry, async_add_devices):
         cloud_sensor.pod_id = i
         sensors.append(cloud_sensor)
 
+        if coordinator.remote_locks.get(coordinator.data[i].ppid) is not None:
+            sensors.append(PodPointOffModeSensor(coordinator, entry, i))
+        charger = coordinator.chargers.get(coordinator.data[i].ppid)
+        if charger is not None and charger.delegated_control_status is not None:
+            sensors.append(PodPointSmartChargingSensor(coordinator, entry, i))
+
     async_add_devices(sensors)
 
 
@@ -68,6 +74,10 @@ class PodPointCloudConnectionSensor(PodPointEntity, BinarySensorEntity):
     @property
     def is_on(self):
         """Return true if the binary_sensor is on."""
+        status_v2 = self.coordinator.connectivity_v2.get(self.pod.ppid)
+        if status_v2 is not None:
+            return status_v2.connection_state == ATTR_CONNECTION_STATE_ONLINE
+
         if self.pod is None:
             return False
 
@@ -87,3 +97,39 @@ class PodPointCloudConnectionSensor(PodPointEntity, BinarySensorEntity):
             return "mdi:cloud-check-variant"
 
         return "mdi:cloud-off"
+
+
+class PodPointOffModeSensor(PodPointEntity, BinarySensorEntity):
+    """Whether remote off mode is enabled in Pod Home."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Off mode"
+    _attr_icon = "mdi:power-plug-off"
+
+    @property
+    def unique_id(self):
+        return f"{super().unique_id}_off_mode"
+
+    @property
+    def is_on(self):
+        remote_lock = self.coordinator.remote_locks.get(self.pod.ppid)
+        return bool(remote_lock and remote_lock.off_mode)
+
+
+class PodPointSmartChargingSensor(PodPointEntity, BinarySensorEntity):
+    """Whether charger-level delegated smart charging is enabled."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Pod Home smart charging"
+    _attr_icon = "mdi:ev-station"
+
+    @property
+    def unique_id(self):
+        return f"{super().unique_id}_pod_home_smart_charging"
+
+    @property
+    def is_on(self):
+        charger = self.coordinator.chargers.get(self.pod.ppid)
+        if charger is None or charger.delegated_control_status is None:
+            return False
+        return charger.delegated_control_status.upper() in {"ACTIVE", "ENABLED"}

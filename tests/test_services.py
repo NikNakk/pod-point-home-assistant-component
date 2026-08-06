@@ -2,7 +2,6 @@
 
 from unittest.mock import patch
 
-from podpointclient.pod import Pod
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -25,7 +24,7 @@ async def test_charge_now_service_with_data(hass, bypass_get_data):
     # Functions/objects can be patched directly in test code as well and can be used to test
     # additional things, like whether a function was called or what arguments it was called with
     with patch(
-        "podpointclient.client.PodPointClient.async_set_charge_override"
+        "podpointclient.client.PodPointClient.async_create_charger_charge_override"
     ) as title_func:
         await hass.services.async_call(
             DOMAIN,
@@ -40,11 +39,11 @@ async def test_charge_now_service_with_data(hass, bypass_get_data):
         )
         assert title_func.called
 
-        pod_type = type(title_func.call_args.kwargs["pod"])
+        charger = title_func.call_args.kwargs["charger"]
         hours = title_func.call_args.kwargs["hours"]
         minutes = title_func.call_args.kwargs["minutes"]
         seconds = title_func.call_args.kwargs["seconds"]
-        assert Pod == pod_type
+        assert "PSL-123456" == charger.ppid
         assert 3 == hours
         assert 2 == minutes
         assert 1 == seconds
@@ -62,11 +61,11 @@ async def test_charge_now_service_with_data(hass, bypass_get_data):
         )
         assert title_func.called
 
-        pod_type = type(title_func.call_args.kwargs["pod"])
+        charger = title_func.call_args.kwargs["charger"]
         hours = title_func.call_args.kwargs["hours"]
         minutes = title_func.call_args.kwargs["minutes"]
         seconds = title_func.call_args.kwargs["seconds"]
-        assert Pod == pod_type
+        assert "PSL-123456" == charger.ppid
         assert 0 == hours
         assert 0 == minutes
         assert 1 == seconds
