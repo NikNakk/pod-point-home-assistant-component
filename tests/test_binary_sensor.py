@@ -1,6 +1,7 @@
 """Test pod_point binary sensors."""
 
 from typing import List, Union
+from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
 from homeassistant.components.binary_sensor import (
@@ -71,6 +72,16 @@ async def test_cloud_connection_sensor(hass, bypass_get_data):
     assert EntityCategory.DIAGNOSTIC == status.entity_category
     assert "pod_point_12234_PSL-123456_cloud_connection" == status.unique_id
     assert "Cloud Connection" == status.name
+
+    status.coordinator.connectivity_v2[status.pod.ppid] = SimpleNamespace(
+        connection_state="Online"
+    )
+    assert status.is_on is True
+
+    status.coordinator.connectivity_v2[status.pod.ppid].connection_state = "Offline"
+    assert status.is_on is False
+
+    status.coordinator.connectivity_v2.clear()
 
     status.pod.connectivity_status = ConnectivityStatus(
         CONNECTIVITY_STATUS_COMPLETE_FIXTURE

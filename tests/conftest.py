@@ -97,9 +97,9 @@ def bypass_get_data_fixture():
         ppid=pod.ppid, unit_id=pod.unit_id, delegated_control_status=None
     )
     connectivity_v2 = SimpleNamespace(
-        connection_state="ONLINE",
-        connection_quality=3,
-        charging_state="CHARGING",
+        connection_state="Online",
+        connection_quality=4,
+        charging_state="SuspendedEVSE",
         last_seen_at=pod.last_contact_at,
     )
 

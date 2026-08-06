@@ -4,6 +4,7 @@ Data coordinator for pod point client
 
 from datetime import datetime, timedelta
 import logging
+import re
 from typing import Any, Awaitable, Dict, List, Set, Tuple
 
 from homeassistant.core import HomeAssistant
@@ -470,4 +471,12 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
 
     @staticmethod
     def __normalise_state(state: str | None) -> str | None:
-        return state.lower().replace("_", "-") if state is not None else None
+        """Convert Pod Home title/camel/snake case states to HA enum values."""
+        if state is None:
+            return None
+
+        # Examples returned by the API include ``SuspendedEVSE`` and
+        # ``OutOfService`` as well as older upper snake-case variants.
+        value = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", state.strip())
+        value = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value)
+        return value.lower().replace("_", "-")

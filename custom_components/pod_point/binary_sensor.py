@@ -76,7 +76,11 @@ class PodPointCloudConnectionSensor(PodPointEntity, BinarySensorEntity):
         """Return true if the binary_sensor is on."""
         status_v2 = self.coordinator.connectivity_v2.get(self.pod.ppid)
         if status_v2 is not None:
-            return status_v2.connection_state == ATTR_CONNECTION_STATE_ONLINE
+            return (
+                status_v2.connection_state is not None
+                and status_v2.connection_state.casefold()
+                == ATTR_CONNECTION_STATE_ONLINE.casefold()
+            )
 
         if self.pod is None:
             return False
