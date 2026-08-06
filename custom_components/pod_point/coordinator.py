@@ -51,7 +51,10 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         self.chargers: Dict[str, Any] = {}
         self.connectivity_v2: Dict[str, Any] = {}
         self.tariffs: Dict[str, List[Any]] = {}
-        self.charge_overrides: Dict[str, List[Any]] = {}
+        # None means the endpoint failed; [] means it succeeded with no overrides.
+        self.charge_overrides: Dict[str, List[Any] | None] = {}
+        self.delegated_controls: Dict[str, Any] = {}
+        self.manual_schedules: Dict[str, List[Any] | None] = {}
         self.smart_charging_preferences: Dict[str, Any] = {}
         self.remote_locks: Dict[str, Any] = {}
         self.delegated_vehicles: Dict[str, Any] = {}
@@ -455,8 +458,18 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
             )
             self.charge_overrides[pod.ppid] = await self.__async_optional(
                 self.api.async_get_charger_charge_overrides(charger, active_only=True),
-                [],
+                None,
                 f"charge overrides for {pod.ppid}",
+            )
+            self.delegated_controls[pod.ppid] = await self.__async_optional(
+                self.api.async_get_delegated_control(charger),
+                None,
+                f"delegated control for {pod.ppid}",
+            )
+            self.manual_schedules[pod.ppid] = await self.__async_optional(
+                self.api.async_get_manual_schedules(charger),
+                None,
+                f"manual schedules for {pod.ppid}",
             )
             self.smart_charging_preferences[pod.ppid] = await self.__async_optional(
                 self.api.async_get_smart_charging_preferences(charger),

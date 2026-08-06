@@ -86,6 +86,9 @@ async def test_coordinator_refresh(hass, bypass_get_data):
     assert isinstance(pod, Pod)
     assert pod.charging_state == "suspended-evse"
     assert coordinator.connectivity_v2[pod.ppid].connection_state == "Online"
+    assert coordinator.delegated_controls[pod.ppid].status == "INACTIVE"
+    assert coordinator.charge_overrides[pod.ppid] == []
+    assert coordinator.manual_schedules[pod.ppid] == []
     assert len(pod.charges) == 9
     assert pod.last_charge_cost == 116
     assert isinstance(coordinator.user, User) is True

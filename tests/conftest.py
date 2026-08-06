@@ -102,6 +102,7 @@ def bypass_get_data_fixture():
         charging_state="SuspendedEVSE",
         last_seen_at=pod.last_contact_at,
     )
+    delegated_control = SimpleNamespace(status="INACTIVE")
 
     with patch(
         "podpointclient.client.PodPointClient.async_get_all_pods", return_value=pods
@@ -134,6 +135,12 @@ def bypass_get_data_fixture():
         "podpointclient.client.PodPointClient.async_get_tariffs", return_value=[]
     ), patch(
         "podpointclient.client.PodPointClient.async_get_charger_charge_overrides",
+        return_value=[],
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_delegated_control",
+        return_value=delegated_control,
+    ), patch(
+        "podpointclient.client.PodPointClient.async_get_manual_schedules",
         return_value=[],
     ), patch(
         "podpointclient.client.PodPointClient.async_get_smart_charging_preferences",

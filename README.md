@@ -33,8 +33,9 @@ Platform | Description
 `sensor` (Last message received) | When was a message last received from a given pod.
 `sensor` (Cloud connection status) | Status of pods connection to the cloud.
 `select` (Smart charging priority) | Prioritise a complete charge or the lowest tariff cost.
+`select` (Basic charging mode) | Select Scheduled or Always on while smart charging is inactive.
 `switch` (****Allow Charging) | Legacy chargers only: enable/disable charging using schedules.
-`switch` (Smart Charge Mode) | Legacy chargers only: switch between Smart and Manual modes.
+`switch` (Smart Charge Mode) | Enable or disable charger-centric delegated smart charging.
 `update` (Firmware Update) | Shows the current firmware version for your device and alerts if an update is available
 
 > ***Total cost is based on the energy provider and kWh cost set in Pod Point.**
@@ -167,6 +168,16 @@ use the legacy controls.
 The Smart charging priority selector mirrors the app. “Prioritise a complete
 charge” sets the preference to the highest configured tariff-period price, while
 “Prioritise lowest cost” sets it to the lowest price.
+
+The Basic charging mode selector is available only while delegated smart charging
+is inactive. An open-ended charger override is shown as Always on, no active
+override is Scheduled, and a timed boost leaves the selector unavailable rather
+than misrepresenting the current mode.
+
+Manual schedules are fetched into coordinator data but are not exposed as dozens
+of per-day entities. A future integration action accepting and validating one
+complete seven-day schedule is the cleanest Home Assistant interface because the
+Pod Home API replaces all seven entries atomically, including overnight periods.
 
 ## Cost sensors
 

@@ -25,16 +25,14 @@ async def async_setup_entry(hass, entry, async_add_devices):
     switches = []
 
     for i in range(len(coordinator.data)):
-        # Pod Home rejects the legacy schedule and charge-mode write endpoints
-        # with HTTP 403. Boosts are provided by the charge_now services instead.
         if coordinator.data[i].ppid in coordinator.chargers:
+            # Preserve the legacy smart-mode entity unique ID while moving its
+            # implementation to the charger-centric delegated-control endpoint.
+            switches.append(PodPointChargeModeSwitch(coordinator, entry, i))
             continue
 
         charging_allowed_switch = PodPointChargingAllowedSwitch(coordinator, entry, i)
-        charge_mode_switch = PodPointChargeModeSwitch(coordinator, entry, i)
-
         switches.append(charging_allowed_switch)
-        switches.append(charge_mode_switch)
     async_add_devices(switches)
 
 
@@ -89,27 +87,27 @@ class PodPointChargingAllowedSwitch(PodPointEntity, SwitchEntity):
 
 
 class PodPointChargeModeSwitch(PodPointEntity, SwitchEntity):
-    """pod_point switch class."""
+    """Charger-centric delegated smart-charging switch."""
 
     _attr_name = "Smart Charge Mode"
     _attr_icon = "mdi:cog"
     _attr_has_entity_name = True
 
     async def async_turn_on(self, **kwargs):  # pylint: disable=unused-argument
-        """Set charge mode to smart"""
+        """Enable delegated smart charging."""
         api: PodPointClient = self.coordinator.api
-        await api.async_set_charge_mode_smart(self.pod)
-
-        self.coordinator.last_message_at = datetime.now(pytz.UTC)
-        await self.coordinator.async_request_refresh()
+        charger = self.coordinator.chargers[self.pod.ppid]
+        if await api.async_set_charger_smart_charging(charger, True):
+            self.coordinator.last_message_at = datetime.now(pytz.UTC)
+            await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs):  # pylint: disable=unused-argument
-        """Set charge mode to manual"""
+        """Disable delegated smart charging."""
         api: PodPointClient = self.coordinator.api
-        await api.async_set_charge_mode_manual(self.pod)
-
-        self.coordinator.last_message_at = datetime.now(pytz.UTC)
-        await self.coordinator.async_request_refresh()
+        charger = self.coordinator.chargers[self.pod.ppid]
+        if await api.async_set_charger_smart_charging(charger, False):
+            self.coordinator.last_message_at = datetime.now(pytz.UTC)
+            await self.coordinator.async_request_refresh()
 
     @property
     def unique_id(self):
@@ -117,7 +115,12 @@ class PodPointChargeModeSwitch(PodPointEntity, SwitchEntity):
 
     @property
     def is_on(self):
+        control = self.coordinator.delegated_controls.get(self.pod.ppid)
+        return control is not None and control.status == "ACTIVE"
+
+    @property
+    def available(self) -> bool:
         return (
-            self.pod.charge_mode == ChargeMode.SMART
-            or self.pod.charge_mode == ChargeMode.OVERRIDE
+            super().available
+            and self.coordinator.delegated_controls.get(self.pod.ppid) is not None
         )
