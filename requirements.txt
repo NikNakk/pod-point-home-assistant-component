@@ -1,4 +1,4 @@
-podpointclient @ git+https://github.com/NikNakk/podpointclient.git@475baa7
+podpointclient @ git+https://github.com/NikNakk/podpointclient.git@ed42975
 StrEnum>=0.4
 aiodiscover>=2.2.0
 scapy>=2.5

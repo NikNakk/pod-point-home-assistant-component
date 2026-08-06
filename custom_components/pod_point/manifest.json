@@ -566,7 +566,7 @@
   "issue_tracker": "https://github.com/mattrayner/pod-point-home-assistant-component/issues",
   "quality_scale": "silver",
   "requirements": [
-    "podpointclient @ git+https://github.com/NikNakk/podpointclient.git@475baa7",
+    "podpointclient @ git+https://github.com/NikNakk/podpointclient.git@ed42975",
     "StrEnum>=0.4,<0.5",
     "aiodiscover",
     "scapy"
