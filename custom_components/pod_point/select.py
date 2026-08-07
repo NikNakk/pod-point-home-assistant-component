@@ -21,15 +21,18 @@ async def async_setup_entry(hass, entry, async_add_entities):
     for index, pod in enumerate(coordinator.data):
         if pod.ppid in coordinator.chargers:
             entities.append(PodPointBasicChargingModeSelect(coordinator, entry, index))
-        if (
-            coordinator.smart_charging_preferences.get(pod.ppid) is not None
-            and _tariff_prices(coordinator, pod.ppid)
-        ):
-            entities.append(PodPointSmartChargingPrioritySelect(coordinator, entry, index))
+        if coordinator.smart_charging_preferences.get(
+            pod.ppid
+        ) is not None and _tariff_prices(coordinator, pod.ppid):
+            entities.append(
+                PodPointSmartChargingPrioritySelect(coordinator, entry, index)
+            )
     async_add_entities(entities)
 
 
-def _tariff_prices(coordinator: PodPointDataUpdateCoordinator, ppid: str) -> list[float]:
+def _tariff_prices(
+    coordinator: PodPointDataUpdateCoordinator, ppid: str
+) -> list[float]:
     """Return every configured tariff-period price for a charger."""
     return [
         period.price
@@ -119,8 +122,10 @@ class PodPointBasicChargingModeSelect(PodPointEntity, SelectEntity):
             )
             succeeded = result is not None
         else:
-            succeeded = await self.coordinator.api.async_set_charger_charge_mode_scheduled(
-                charger
+            succeeded = (
+                await self.coordinator.api.async_set_charger_charge_mode_scheduled(
+                    charger
+                )
             )
         if succeeded:
             await self.coordinator.async_request_refresh()

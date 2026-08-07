@@ -7,6 +7,7 @@ import logging
 import re
 from typing import Any, Awaitable, Dict, List, Set, Tuple
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import issue_registry as ir
@@ -29,7 +30,11 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
     _firmware_refresh_interval = 5  # How many refreshes between a firmware update call
 
     def __init__(
-        self, hass: HomeAssistant, client: PodPointClient, scan_interval: timedelta
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        client: PodPointClient,
+        scan_interval: timedelta,
     ) -> None:
         """Initialize."""
         self.api: PodPointClient = client
@@ -61,7 +66,13 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         self.reward_wallet: Any = None
         self.last_message_at = datetime(1970, 1, 1, 0, 0, 0, 0, pytz.UTC)
 
-        super().__init__(hass, _LOGGER, name=DOMAIN, update_interval=scan_interval)
+        super().__init__(
+            hass,
+            _LOGGER,
+            config_entry=config_entry,
+            name=DOMAIN,
+            update_interval=scan_interval,
+        )
 
     async def _async_update_data(self):
         """Update data via library."""

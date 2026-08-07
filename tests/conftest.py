@@ -151,7 +151,8 @@ def bypass_get_data_fixture():
         "podpointclient.client.PodPointClient.async_get_delegated_vehicles",
         return_value=[],
     ), patch(
-        "podpointclient.client.PodPointClient.async_get_reward_wallet", return_value=None
+        "podpointclient.client.PodPointClient.async_get_reward_wallet",
+        return_value=None,
     ):
         yield
 

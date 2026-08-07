@@ -14,7 +14,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
     entities = []
     for index, pod in enumerate(coordinator.data):
         if coordinator.smart_charging_preferences.get(pod.ppid) is not None:
-            entities.append(PodPointSmartChargingMaxPriceNumber(coordinator, entry, index))
+            entities.append(
+                PodPointSmartChargingMaxPriceNumber(coordinator, entry, index)
+            )
     async_add_entities(entities)
 
 

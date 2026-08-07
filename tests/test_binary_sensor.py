@@ -1,7 +1,7 @@
 """Test pod_point binary sensors."""
 
-from typing import List, Union
 from types import SimpleNamespace
+from typing import List, Union
 from unittest.mock import Mock, call, patch
 
 from homeassistant.components.binary_sensor import (

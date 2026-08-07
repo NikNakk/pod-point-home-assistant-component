@@ -4,11 +4,11 @@ import logging
 from typing import Dict
 
 from homeassistant import config_entries
-from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.device_registry import format_mac
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from podpointclient.client import PodPointClient
 import voluptuous as vol
 
@@ -74,6 +74,13 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             self._errors["base"] = "auth"
             return await self._show_config_form(user_input)
 
+        if self.source == config_entries.SOURCE_REAUTH:
+            reauth_entry = self._get_reauth_entry()
+            return self.async_update_reload_and_abort(
+                reauth_entry,
+                data_updates=user_input,
+            )
+
         existing_entry = await self.async_set_unique_id(user_input[CONF_EMAIL].lower())
 
         # If an entry exists, update it and show the re-auth message
@@ -89,7 +96,7 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry) -> FlowResult:
-        return PodPointOptionsFlowHandler(config_entry)
+        return PodPointOptionsFlowHandler()
 
     async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> FlowResult:
         formatted_mac = format_mac(discovery_info.macaddress)
@@ -134,15 +141,11 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
     """Pod Point config flow options handler."""
 
-    def __init__(self, config_entry):
-        """Initialize HACS options flow."""
-        self.config_entry = config_entry
-        self.options = dict(config_entry.options)
-
     async def async_step_init(
         self, _=None
     ) -> FlowResult:  # pylint: disable=unused-argument
         """Manage the options."""
+        self.options = dict(self.config_entry.options)
         return await self.async_step_user()
 
     async def async_step_user(self, user_input=None) -> FlowResult:

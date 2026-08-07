@@ -559,7 +559,11 @@ class PodPointChargeOverrideEntity(
         overrides = self.coordinator.charge_overrides.get(self.pod.ppid, [])
         if overrides:
             return max(
-                (override.end_at for override in overrides if override.end_at is not None),
+                (
+                    override.end_at
+                    for override in overrides
+                    if override.end_at is not None
+                ),
                 default=None,
             )
 
@@ -774,7 +778,9 @@ class PodPointRewardBalanceSensor(CoordinatorEntity, SensorEntity):
         super().__init__(coordinator)
         self.config_entry = config_entry
         self.section = section
-        self._attr_name = "Reward balance" if section == "rewards" else "Reward allowance"
+        self._attr_name = (
+            "Reward balance" if section == "rewards" else "Reward allowance"
+        )
 
     @property
     def unique_id(self):
@@ -922,7 +928,10 @@ class PodPointVehicleBatterySensor(PodPointEntity, SensorEntity):
         delegated = self.coordinator.delegated_vehicles.get(self.pod.ppid)
         if delegated is None or not delegated.vehicles:
             return None
-        return next((item for item in delegated.vehicles if item.is_primary), delegated.vehicles[0])
+        return next(
+            (item for item in delegated.vehicles if item.is_primary),
+            delegated.vehicles[0],
+        )
 
     @property
     def native_value(self):

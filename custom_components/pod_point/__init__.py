@@ -5,7 +5,6 @@ For more details about this integration, please refer to
 https://github.com/mattrayner/pod-point-home-assistant-component
 """
 
-import asyncio
 from datetime import timedelta
 import logging
 from pathlib import Path
@@ -77,7 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     # Setup our data coordinator with the desired scan interval
     coordinator = PodPointDataUpdateCoordinator(
-        hass, client=client, scan_interval=scan_interval
+        hass, config_entry=entry, client=client, scan_interval=scan_interval
     )
 
     # Check the credentials we have and ensure that we can perform a refresh
@@ -111,26 +110,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Handle removal of an entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    unloaded = all(
-        await asyncio.gather(
-            *[
-                hass.config_entries.async_forward_entry_unload(entry, platform)
-                for platform in PLATFORMS
-                if platform in coordinator.platforms
-            ],
-        )
+    domain_data = hass.data.get(DOMAIN)
+    coordinator = domain_data.get(entry.entry_id) if domain_data is not None else None
+    unloaded = await hass.config_entries.async_unload_platforms(
+        entry,
+        [
+            platform
+            for platform in PLATFORMS
+            if coordinator is not None and platform in coordinator.platforms
+        ],
     )
-    if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id)
+    if unloaded and domain_data is not None:
+        domain_data.pop(entry.entry_id, None)
+        if not domain_data:
+            await async_deregister_services(hass)
+            hass.data.pop(DOMAIN, None)
 
     return unloaded
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry."""
-    unloaded = await async_unload_entry(hass, entry)
-    if unloaded is False:
-        _LOGGER.error("Error unloading entry: %s", entry)
-
-    await async_setup_entry(hass, entry)
+    await hass.config_entries.async_reload(entry.entry_id)
