@@ -34,4 +34,4 @@ test:
 		tests
 
 develop:
-	$(VENV)/bin/hass --config config --debug
+	scripts/develop

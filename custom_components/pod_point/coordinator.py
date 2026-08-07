@@ -41,7 +41,7 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         hass: HomeAssistant,
         config_entry: ConfigEntry,
         client: PodPointClient,
-        scan_interval: timedelta,
+        scan_interval: timedelta | None,
     ) -> None:
         """Initialize."""
         self.api: PodPointClient = client

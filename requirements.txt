@@ -1,1 +1,1 @@
-podpointclient @ git+https://github.com/NikNakk/podpointclient.git@e25931e
+podpointclient @ git+https://github.com/NikNakk/podpointclient.git@1173802

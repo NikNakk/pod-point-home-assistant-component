@@ -10,7 +10,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.pod_point import (
     PodPointDataUpdateCoordinator,
     async_reload_entry,
-    async_unload_entry,
 )
 from custom_components.pod_point.const import DOMAIN
 
@@ -41,7 +40,7 @@ async def test_setup_unload_and_reload_entry(hass, bypass_get_data):
     assert isinstance(config_entry.runtime_data, PodPointDataUpdateCoordinator)
 
     # Unload the entry and verify that the data has been removed
-    assert await async_unload_entry(hass, config_entry)
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
 
 
 @pytest.mark.asyncio

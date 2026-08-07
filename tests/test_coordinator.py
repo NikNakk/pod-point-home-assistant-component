@@ -40,7 +40,9 @@ async def subject(hass) -> PodPointDataUpdateCoordinator:
         hass,
         config_entry=config_entry,
         client=client,
-        scan_interval=timedelta(seconds=3000),
+        # These unit-test coordinators are not owned by a loaded config entry.
+        # Disable polling so entity listeners do not schedule refresh timers.
+        scan_interval=None,
     )
 
 
