@@ -1,4 +1,1 @@
 podpointclient @ git+https://github.com/NikNakk/podpointclient.git@e25931e
-StrEnum>=0.4
-aiodiscover>=2.2.0
-scapy>=2.5

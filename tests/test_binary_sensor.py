@@ -1,53 +1,45 @@
 """Test pod_point binary sensors."""
 
 from types import SimpleNamespace
-from typing import List, Union
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
 from homeassistant.helpers.entity import EntityCategory
-from podpointclient.connectivity_status import ConnectivityStatus, Evse
+from podpointclient.connectivity_status import ConnectivityStatus
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.pod_point import async_setup_entry
 from custom_components.pod_point.binary_sensor import (
     PodPointCableConnectionSensor,
     PodPointCloudConnectionSensor,
     async_setup_entry,
 )
-from custom_components.pod_point.const import (
-    ATTR_CONNECTION_STATE_ONLINE,
-    ATTR_STATE,
-    DOMAIN,
-)
+from custom_components.pod_point.const import ATTR_STATE, DOMAIN
 
 from .const import MOCK_CONFIG
 from .fixtures import CONNECTIVITY_STATUS_COMPLETE_FIXTURE
 from .test_coordinator import subject_with_data as coordinator_with_data
 
 
-async def setup_sensors(hass) -> List[BinarySensorEntity]:
+async def setup_sensors(hass) -> tuple[MockConfigEntry, list[BinarySensorEntity]]:
     """Setup sensors within the test environment"""
     coordinator = await coordinator_with_data(hass)
 
     # Create a mock entry so we don't have to go through config flow
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
 
-    hass.data[DOMAIN] = {}
-    hass.data[DOMAIN][config_entry.entry_id] = coordinator
+    config_entry.runtime_data = coordinator
 
     mock = Mock()
 
     await async_setup_entry(hass, config_entry, mock)
 
-    print(mock.call_args_list)
-    sensors: List[
-        Union(PodPointCableConnectionSensor, PodPointCloudConnectionSensor)
-    ] = mock.call_args_list[0][0][0]
+    sensors: list[PodPointCableConnectionSensor | PodPointCloudConnectionSensor] = (
+        mock.call_args_list[0][0][0]
+    )
 
     return (config_entry, sensors)
 

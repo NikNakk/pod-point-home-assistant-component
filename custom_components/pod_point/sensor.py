@@ -1,8 +1,8 @@
 """Sensor platform for pod_point."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -16,7 +16,6 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from podpointclient.charge_mode import ChargeMode
 from podpointclient.charge_override import ChargeOverride
-from podpointclient.connectivity_status import Evse
 from podpointclient.pod import Pod
 from podpointclient.user import User
 
@@ -49,60 +48,67 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    # Handle coordinator offline on boot - no data will be populated
-    if coordinator.online is False:
-        return
+    coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
+    known_entities: set[tuple[str, str]] = set()
 
-    sensors = []
-
-    for i in range(len(coordinator.data)):
-        pps = PodPointSensor(coordinator, entry, i)
-        ppcts = PodPointChargeTimeSensor(coordinator, entry, i)
-        pptes = PodPointTotalEnergySensor(coordinator, entry, i)
-        ppces = PodPointCurrentEnergySensor(coordinator, entry, i)
-        ppsss = PodPointSignalStrengthSensor(coordinator, entry, i)
-        pplmrs = PodPointLastMessageReceivedSensor(coordinator, entry, i)
-        pptcs = PodPointTotalCostSensor(coordinator, entry, i)
-        pplcccs = PodPointLastCompleteChargeCostSensor(coordinator, entry, i)
-        charge_mode = PodPointChargeModeEntity(coordinator, entry, i)
-        charge_override = PodPointChargeOverrideEntity(coordinator, entry, i)
-
-        sensors.append(pps)
-        sensors.append(ppcts)
-        sensors.append(pptes)
-        sensors.append(ppces)
-        sensors.append(ppsss)
-        if coordinator.connectivity_v2.get(coordinator.data[i].ppid) is not None:
-            sensors.append(PodPointConnectionQualitySensor(coordinator, entry, i))
-        sensors.append(pplmrs)
-        sensors.append(pptcs)
-        sensors.append(pplcccs)
-        sensors.append(charge_mode)
-        sensors.append(charge_override)
-
-    sensors.append(PodPointAccountBalanceEntity(coordinator, entry))
-
-    if coordinator.reward_wallet is not None:
-        sensors.extend(
-            [
-                PodPointRewardBalanceSensor(coordinator, entry, "rewards"),
-                PodPointRewardBalanceSensor(coordinator, entry, "allowance"),
-                PodPointRewardPointsSensor(coordinator, entry),
+    def _add_new_entities() -> None:
+        sensors = []
+        for index, pod in enumerate(coordinator.data):
+            candidates = [
+                ("status", PodPointSensor),
+                ("charge_time", PodPointChargeTimeSensor),
+                ("total_energy", PodPointTotalEnergySensor),
+                ("current_energy", PodPointCurrentEnergySensor),
+                ("signal_strength", PodPointSignalStrengthSensor),
+                ("last_message", PodPointLastMessageReceivedSensor),
+                ("total_cost", PodPointTotalCostSensor),
+                ("last_charge_cost", PodPointLastCompleteChargeCostSensor),
+                ("charge_mode", PodPointChargeModeEntity),
+                ("charge_override", PodPointChargeOverrideEntity),
             ]
-        )
+            if coordinator.connectivity_v2.get(pod.ppid) is not None:
+                candidates.append(("connection_quality", PodPointConnectionQualitySensor))
+            if coordinator.tariffs.get(pod.ppid):
+                candidates.append(("cheapest_tariff", PodPointCheapestTariffSensor))
+            if coordinator.smart_charging_preferences.get(pod.ppid) is not None:
+                candidates.append(
+                    ("smart_max_price", PodPointSmartChargingMaxPriceSensor)
+                )
+            delegated = coordinator.delegated_vehicles.get(pod.ppid)
+            if delegated is not None and delegated.vehicles:
+                candidates.append(("vehicle_battery", PodPointVehicleBatterySensor))
 
-    for i in range(len(coordinator.data)):
-        ppid = coordinator.data[i].ppid
-        if coordinator.tariffs.get(ppid):
-            sensors.append(PodPointCheapestTariffSensor(coordinator, entry, i))
-        if coordinator.smart_charging_preferences.get(ppid) is not None:
-            sensors.append(PodPointSmartChargingMaxPriceSensor(coordinator, entry, i))
-        delegated = coordinator.delegated_vehicles.get(ppid)
-        if delegated is not None and delegated.vehicles:
-            sensors.append(PodPointVehicleBatterySensor(coordinator, entry, i))
+            for key, entity_type in candidates:
+                entity_key = (pod.ppid, key)
+                if entity_key not in known_entities:
+                    known_entities.add(entity_key)
+                    sensors.append(entity_type(coordinator, entry, index))
 
-    async_add_devices(sensors)
+        account_candidates = [("balance", PodPointAccountBalanceEntity)]
+        if coordinator.reward_wallet is not None:
+            account_candidates.extend(
+                [
+                    ("reward_balance", PodPointRewardBalanceSensor),
+                    ("allowance_balance", PodPointRewardBalanceSensor),
+                    ("reward_points", PodPointRewardPointsSensor),
+                ]
+            )
+        for key, entity_type in account_candidates:
+            entity_key = (entry.entry_id, key)
+            if entity_key in known_entities:
+                continue
+            known_entities.add(entity_key)
+            if key in {"reward_balance", "allowance_balance"}:
+                section = "rewards" if key == "reward_balance" else "allowance"
+                sensors.append(entity_type(coordinator, entry, section))
+            else:
+                sensors.append(entity_type(coordinator, entry))
+
+        if sensors:
+            async_add_devices(sensors)
+
+    _add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
 class PodPointSensor(
@@ -177,7 +183,7 @@ class PodPointChargeTimeSensor(
         return f"{super().unique_id}_charge_time"
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         return {
             "raw": self.pod.total_charge_seconds,
             "formatted": str(timedelta(seconds=self.pod.total_charge_seconds)),
@@ -234,7 +240,7 @@ class PodPointSignalStrengthSensor(
         return f"{super().unique_id}_signal_strength"
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         return self.extra_attrs
 
     @property
@@ -371,7 +377,7 @@ class PodPointLastMessageReceivedSensor(
         return f"{super().unique_id}_last_message_at"
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         return self.extra_attrs
 
     @property
@@ -431,7 +437,7 @@ class PodPointTotalEnergySensor(PodPointSensor):
         self.extra_attrs = attrs
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
         return self.extra_attrs
 
@@ -478,13 +484,11 @@ class PodPointCurrentEnergySensor(PodPointTotalEnergySensor):
         return self.pod.current_kwh
 
     @property
-    def last_reset(self) -> datetime:
-        if len(self.pod.charges) <= 0:
-            return datetime.now(tz=timezone.utc)
-
-        # Get the most recent charge
-        charge = self.pod.charges[0]
-        return charge.starts_at - timedelta(seconds=10)
+    def last_reset(self) -> datetime | None:
+        active_charge = next(
+            (charge for charge in self.pod.charges if charge.ends_at is None), None
+        )
+        return active_charge.starts_at if active_charge is not None else None
 
     @property
     def icon(self):
@@ -513,7 +517,7 @@ class PodPointChargeModeEntity(
         return f"{super().unique_id}_charge_mode"
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         charge_override = None
         if self.pod.charge_override is not None:
             charge_override = self.pod.charge_override.dict
@@ -546,7 +550,7 @@ class PodPointChargeOverrideEntity(
         return f"{super().unique_id}_override_end_time"
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         charge_override = None
         if self.pod.charge_override is not None:
             charge_override = self.pod.charge_override.dict
@@ -607,7 +611,7 @@ class PodPointTotalCostSensor(
         return currency
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         cost_as_pounds = self.pod.total_cost / 100
 
         return {
@@ -659,7 +663,7 @@ class PodPointLastCompleteChargeCostSensor(
         return currency
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         raw = 0
         cost_as_pounds = 0.0
 
@@ -721,11 +725,7 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
         if self.available is False:
             return
 
-        user: User = self.user
-
-        attrs = {"attribution": ATTRIBUTION, "uuid": self.uuid, "integration": DOMAIN}
-
-        attrs.update(user.dict)
+        attrs = {"attribution": ATTRIBUTION, "integration": DOMAIN}
         self._attr_state = self.balance
         self._attr_extra_state_attributes = attrs
 

@@ -1,15 +1,15 @@
 """Adds config flow for Pod Point."""
 
 import logging
-from typing import Dict
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from podpointclient.client import PodPointClient
+from podpointclient.errors import ApiConnectionError, AuthError, SessionError
 import voluptuous as vol
 
 from .const import (
@@ -28,6 +28,14 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+class CannotConnect(Exception):
+    """Raised when Pod Point cannot be reached."""
+
+
+class InvalidAuth(Exception):
+    """Raised when Pod Point rejects the supplied credentials."""
+
+
 class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Pod Point."""
 
@@ -39,13 +47,24 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._errors = {}
 
     # pylint: disable=unused-argument
-    async def async_step_reauth(self, user_input: Dict[str, str] = None) -> FlowResult:
+    async def async_step_reauth(
+        self, user_input: dict[str, str] | None = None
+    ) -> ConfigFlowResult:
         """Perform reauth upon an API authentication error."""
+        if user_input is not None:
+            reauth_entry = self._get_reauth_entry()
+            unique_id = user_input[CONF_EMAIL].casefold()
+            if reauth_entry.unique_id is None:
+                self.hass.config_entries.async_update_entry(
+                    reauth_entry, unique_id=unique_id
+                )
+            await self.async_set_unique_id(unique_id)
+            self._abort_if_unique_id_mismatch()
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
-        self, user_input: Dict[str, str] = None
-    ) -> FlowResult:
+        self, user_input: dict[str, str] | None = None
+    ) -> ConfigFlowResult:
         """Dialog that informs the user that reauth is required."""
         if user_input is None:
             return self.async_show_form(
@@ -54,51 +73,66 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             )
         return await self.async_step_user()
 
-    async def async_step_user(self, user_input: Dict[str, str] = None) -> FlowResult:
+    async def async_step_user(
+        self, user_input: dict[str, str] | None = None
+    ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         self._errors = {}
 
         if user_input is None:
             user_input = {}
             # Provide defaults for form
-            user_input[CONF_EMAIL] = ""
+            user_input[CONF_EMAIL] = (
+                self._get_reauth_entry().data[CONF_EMAIL]
+                if self.source == config_entries.SOURCE_REAUTH
+                else ""
+            )
             user_input[CONF_PASSWORD] = ""
 
             return await self._show_config_form(user_input)
 
-        valid = await self._test_credentials(
-            user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
-        )
-
-        if valid is False:
+        user_input[CONF_EMAIL] = user_input[CONF_EMAIL].strip()
+        try:
+            await self._test_credentials(
+                user_input[CONF_EMAIL], user_input[CONF_PASSWORD]
+            )
+        except InvalidAuth:
             self._errors["base"] = "auth"
+            return await self._show_config_form(user_input)
+        except CannotConnect:
+            self._errors["base"] = "cannot_connect"
+            return await self._show_config_form(user_input)
+        except Exception:  # pragma: no cover - defensive flow fallback
+            _LOGGER.exception("Unexpected error validating Pod Point credentials")
+            self._errors["base"] = "unknown"
             return await self._show_config_form(user_input)
 
         if self.source == config_entries.SOURCE_REAUTH:
             reauth_entry = self._get_reauth_entry()
+            if user_input[CONF_EMAIL].casefold() != reauth_entry.unique_id:
+                self._errors["base"] = "wrong_account"
+                return await self._show_config_form(user_input)
             return self.async_update_reload_and_abort(
                 reauth_entry,
                 data_updates=user_input,
             )
 
-        existing_entry = await self.async_set_unique_id(user_input[CONF_EMAIL].lower())
-
-        # If an entry exists, update it and show the re-auth message
-        if existing_entry:
-            self.hass.config_entries.async_update_entry(
-                existing_entry, title=user_input[CONF_EMAIL], data=user_input
-            )
-            await self.hass.config_entries.async_reload(existing_entry.entry_id)
-            return self.async_abort(reason="reauth_successful")
+        await self.async_set_unique_id(user_input[CONF_EMAIL].casefold())
+        self._abort_if_unique_id_configured(
+            updates=user_input,
+            error="reauth_successful",
+        )
 
         return self.async_create_entry(title=user_input[CONF_EMAIL], data=user_input)
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry) -> FlowResult:
+    def async_get_options_flow(config_entry) -> config_entries.OptionsFlow:
         return PodPointOptionsFlowHandler()
 
-    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> FlowResult:
+    async def async_step_dhcp(
+        self, discovery_info: DhcpServiceInfo
+    ) -> ConfigFlowResult:
         formatted_mac = format_mac(discovery_info.macaddress)
         _LOGGER.info("Found PodPoint device with mac %s", formatted_mac)
 
@@ -111,8 +145,8 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_user()
 
     async def _show_config_form(
-        self, user_input: Dict[str, str]
-    ) -> FlowResult:  # pylint: disable=unused-argument
+        self, user_input: dict[str, str]
+    ) -> ConfigFlowResult:  # pylint: disable=unused-argument
         """Show the configuration form to edit location data."""
         return self.async_show_form(
             step_id="user",
@@ -125,17 +159,19 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             errors=self._errors,
         )
 
-    async def _test_credentials(self, username: str, password: str) -> bool:
-        """Return true if credentials is valid."""
+    async def _test_credentials(self, username: str, password: str) -> None:
+        """Validate credentials or raise a flow-specific exception."""
         try:
             session = async_create_clientsession(self.hass)
             client = PodPointClient(
                 username=username, password=password, session=session
             )
-            return await client.async_credentials_verified()
-        except Exception:  # pylint: disable=broad-except
-            pass
-        return False
+            if not await client.async_credentials_verified():
+                raise InvalidAuth
+        except (AuthError, SessionError) as err:
+            raise InvalidAuth from err
+        except ApiConnectionError as err:
+            raise CannotConnect from err
 
 
 class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
@@ -143,12 +179,12 @@ class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(
         self, _=None
-    ) -> FlowResult:  # pylint: disable=unused-argument
+    ) -> ConfigFlowResult:  # pylint: disable=unused-argument
         """Manage the options."""
         self.options = dict(self.config_entry.options)
         return await self.async_step_user()
 
-    async def async_step_user(self, user_input=None) -> FlowResult:
+    async def async_step_user(self, user_input=None) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         if user_input is not None:
             self.options.update(user_input)
@@ -158,20 +194,20 @@ class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required(
                 CONF_CURRENCY,
                 default=self.options.get(CONF_CURRENCY, DEFAULT_CURRENCY),
-            ): str
+            ): vol.All(str, vol.Length(min=3, max=3), str.upper)
         }
 
         poll_schema = {
             vol.Required(
                 CONF_SCAN_INTERVAL,
                 default=self.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
-            ): int
+            ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400))
         }
 
         platforms_schema = {
             vol.Required(
-                x,
-                default=self.options.get(x, True),
+                x.value,
+                default=self.options.get(x.value, True),
             ): bool
             for x in sorted(PLATFORMS)
         }

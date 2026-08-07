@@ -15,12 +15,9 @@
 #
 # See here for more info: https://docs.pytest.org/en/latest/fixture.html (note that
 # pytest includes fixtures OOB which you can use as defined on this page)
-from re import M
-import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-import aiohttp
 from podpointclient.errors import AuthError
 from podpointclient.factories import (
     ChargeFactory,
@@ -40,14 +37,6 @@ from .fixtures import (
 )
 
 pytest_plugins = "pytest_homeassistant_custom_component"
-
-
-def new(self, *args, **kwargs):
-    """Dummy init method for aiohttp.ClientSession to prevent asyncio errors during import"""
-    pass
-
-
-patch.object(aiohttp.ClientSession, "__init__", new).__enter__()
 
 
 # This fixture enables loading custom integrations in all tests.
@@ -75,8 +64,6 @@ def skip_notifications_fixture():
 @pytest.fixture(name="bypass_get_data")
 def bypass_get_data_fixture():
     """Skip calls to get data from API."""
-    print("here")
-
     pod_factory = PodFactory()
     pods = pod_factory.build_pods({"pods": [POD_COMPLETE_FIXTURE]})
     pod = pods[0]
@@ -90,8 +77,6 @@ def bypass_get_data_fixture():
     connectivity_status = connectivity_status_factory.build_connectivity_status(
         CONNECTIVITY_STATUS_COMPLETE_FIXTURE
     )
-
-    print(connectivity_status)
 
     charger = SimpleNamespace(
         ppid=pod.ppid, unit_id=pod.unit_id, delegated_control_status=None
@@ -166,10 +151,13 @@ def error_get_data_fixture():
     user = user_factory.build_user(USER_COMPLETE_FIXTURE)
 
     with patch(
-        "podpointclient.client.PodPointClient.async_get_pods",
-        side_effect=AuthError,
+        "podpointclient.client.PodPointClient.async_get_all_pods",
+        side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
     ), patch(
         "podpointclient.client.PodPointClient.async_get_user",
         return_value=user,
+    ), patch(
+        "podpointclient.client.PodPointClient.async_credentials_verified",
+        side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
     ):
         yield

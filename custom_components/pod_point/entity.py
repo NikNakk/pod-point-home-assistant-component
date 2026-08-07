@@ -2,7 +2,8 @@
 
 from datetime import datetime, timedelta
 import logging
-from typing import Any, Dict, List
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
@@ -45,6 +46,7 @@ class PodPointEntity(CoordinatorEntity):
     ):
         super().__init__(coordinator)
         self.pod_id = idx
+        self._pod_ppid = coordinator.data[idx].ppid
         self.config_entry = config_entry
         self.extra_attrs = {}
 
@@ -64,7 +66,11 @@ class PodPointEntity(CoordinatorEntity):
             "charge_mode": pod.charge_mode,
         }
 
-        attrs.update(pod.dict)
+        # Preserve the established diagnostic attributes without publishing the
+        # charger's precise home coordinates into Home Assistant's state machine.
+        pod_attrs = dict(pod.dict)
+        pod_attrs.pop("location", None)
+        attrs.update(pod_attrs)
 
         state = None
         connectivity_v2 = self.coordinator.connectivity_v2.get(pod.ppid)
@@ -144,8 +150,7 @@ class PodPointEntity(CoordinatorEntity):
     @property
     def pod(self) -> Pod:
         """Return the underlying pod that drives this entity"""
-        pod: Pod = self.coordinator.data[self.pod_id]
-        return pod
+        return next(pod for pod in self.coordinator.data if pod.ppid == self._pod_ppid)
 
     @property
     def unique_id(self):
@@ -158,10 +163,14 @@ class PodPointEntity(CoordinatorEntity):
     @property
     def available(self) -> bool:
         typed_coordinator: PodPointDataUpdateCoordinator = self.coordinator
-        return typed_coordinator.online is True
+        return (
+            super().available
+            and typed_coordinator.online is True
+            and any(pod.ppid == self._pod_ppid for pod in typed_coordinator.data)
+        )
 
     @property
-    def device_info(self) -> Dict[str, Any]:
+    def device_info(self) -> dict[str, Any]:
         name = NAME
         if len(self.psl) > 0:
             name = self.psl
@@ -179,15 +188,15 @@ class PodPointEntity(CoordinatorEntity):
         return dictionary
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
         return self.extra_attrs
 
     @property
     def charging_allowed(self) -> bool:
         """Is charging allowed by schedule?"""
-        pod: Pod = self.coordinator.data[self.pod_id]
-        schedules: List[Schedule] = pod.charge_schedules
+        pod = self.pod
+        schedules: list[Schedule] = pod.charge_schedules
         override: ChargeOverride = pod.charge_override
 
         # Are we in 'manual' mode?
@@ -202,7 +211,12 @@ class PodPointEntity(CoordinatorEntity):
         if override is not None and override.active:
             return True
 
-        weekday = datetime.today().weekday() + 1
+        try:
+            timezone = ZoneInfo(pod.timezone or self.coordinator.hass.config.time_zone)
+        except ZoneInfoNotFoundError:
+            timezone = ZoneInfo("UTC")
+        now = datetime.now(timezone)
+        weekday = now.weekday() + 1
         schedule_for_day: Schedule = next(
             (schedule for schedule in schedules if schedule.start_day == weekday),
             None,
@@ -227,7 +241,7 @@ class PodPointEntity(CoordinatorEntity):
             return int(stringy_int)
 
         start_time = list(map(to_int, schedule_for_day.start_time.split(":")))
-        start_date = datetime.now().replace(
+        start_date = now.replace(
             hour=start_time[0], minute=start_time[1], second=start_time[2]
         )
 
@@ -236,7 +250,7 @@ class PodPointEntity(CoordinatorEntity):
         end_date = None
         if end_day < weekday:
             # roll into next week
-            end_time = end_date = datetime.now().replace(
+            end_time = end_date = now.replace(
                 hour=end_time[0], minute=end_time[1], second=end_time[2]
             )
 
@@ -246,12 +260,12 @@ class PodPointEntity(CoordinatorEntity):
         elif end_day > weekday:
             day_offset = end_day - weekday
 
-            end_time = end_date = datetime.now().replace(
+            end_time = end_date = now.replace(
                 hour=end_time[0], minute=end_time[1], second=end_time[2]
             )
             end_date = end_time + timedelta(days=day_offset)
         else:
-            end_date = datetime.now().replace(
+            end_date = now.replace(
                 hour=end_time[0], minute=end_time[1], second=end_time[2]
             )
 
@@ -259,7 +273,7 @@ class PodPointEntity(CoordinatorEntity):
         if end_date is None:
             return False
 
-        in_range = start_date <= datetime.now() <= end_date
+        in_range = start_date <= now <= end_date
 
         # Are we within the range for today?
         return in_range
@@ -375,7 +389,7 @@ class PodPointEntity(CoordinatorEntity):
 
         return f"{APP_IMAGE_URL_BASE}/{img.lower()}.png"
 
-    def __model_slug(self) -> List[str]:
+    def __model_slug(self) -> list[str]:
         return self.model.upper()[3:8].split("-")
 
     @staticmethod

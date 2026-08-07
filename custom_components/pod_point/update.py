@@ -12,7 +12,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 
@@ -29,15 +28,22 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Setup update platform."""
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    # Handle coordinator offline on boot - no data will be populated
-    if coordinator.online is False:
-        return
+    coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
+    known_pods: set[str] = set()
 
-    for i in range(len(coordinator.data)):
-        async_add_entities(
-            [PodUpdateEntity(coordinator, UPDATE_ENTITY_TYPES, entry, i)]
-        )
+    def _add_new_entities() -> None:
+        entities = []
+        for index, pod in enumerate(coordinator.data):
+            if pod.ppid not in known_pods and pod.firmware is not None:
+                known_pods.add(pod.ppid)
+                entities.append(
+                    PodUpdateEntity(coordinator, UPDATE_ENTITY_TYPES, entry, index)
+                )
+        if entities:
+            async_add_entities(entities)
+
+    _add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
 class PodUpdateEntity(PodPointEntity, UpdateEntity):
@@ -60,7 +66,6 @@ class PodUpdateEntity(PodPointEntity, UpdateEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, config_entry, idx)
         self.coordinator = coordinator
-        self.pod_id = idx
         self.config_entry = config_entry
         self.entity_description = description
 
@@ -81,10 +86,6 @@ class PodUpdateEntity(PodPointEntity, UpdateEntity):
             if self.pod.firmware.update_available
             else self.installed_version
         )
-
-    @property
-    def pod(self):
-        return self.coordinator.data[self.pod_id]
 
     def release_notes(self) -> str | None:
         """Return full release notes."""

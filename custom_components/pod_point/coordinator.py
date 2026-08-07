@@ -2,22 +2,22 @@
 Data coordinator for pod point client
 """
 
-from datetime import datetime, timedelta
+import asyncio
+from datetime import UTC, datetime, timedelta
 import logging
 import re
-from typing import Any, Awaitable, Dict, List, Set, Tuple
+from typing import Any, Awaitable
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from podpointclient.charge import Charge
 from podpointclient.client import PodPointClient
-from podpointclient.errors import ApiConnectionError, AuthError, SessionError
+from podpointclient.errors import APIError, ApiConnectionError, AuthError, SessionError
 from podpointclient.pod import Firmware, Pod
 from podpointclient.user import User
-import pytz
 
 from .const import DOMAIN, LIMITED_POD_INCLUDES
 
@@ -29,6 +29,13 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
 
     _firmware_refresh_interval = 5  # How many refreshes between a firmware update call
 
+    async def async_api_call[T](self, awaitable: Awaitable[T]) -> T:
+        """Execute a user-initiated API request with an actionable HA error."""
+        try:
+            return await awaitable
+        except APIError as err:
+            raise HomeAssistantError("Pod Point rejected the request") from err
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -39,8 +46,8 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize."""
         self.api: PodPointClient = client
         self.platforms = []
-        self.pods: List[Pod] = []
-        self.home_charges: List[Charge] = []
+        self.pods: list[Pod] = []
+        self.home_charges: list[Charge] = []
         self.charges_perpage_all = (
             50  # When we are fetching all charges (new pod, or first launch)
         )
@@ -53,18 +60,18 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         self.user: User = None
         # Data exposed by the charger-centric Pod Home API.  These maps are keyed
         # by PPID so existing Pod based entities keep their stable identifiers.
-        self.chargers: Dict[str, Any] = {}
-        self.connectivity_v2: Dict[str, Any] = {}
-        self.tariffs: Dict[str, List[Any]] = {}
+        self.chargers: dict[str, Any] = {}
+        self.connectivity_v2: dict[str, Any] = {}
+        self.tariffs: dict[str, list[Any]] = {}
         # None means the endpoint failed; [] means it succeeded with no overrides.
-        self.charge_overrides: Dict[str, List[Any] | None] = {}
-        self.delegated_controls: Dict[str, Any] = {}
-        self.manual_schedules: Dict[str, List[Any] | None] = {}
-        self.smart_charging_preferences: Dict[str, Any] = {}
-        self.remote_locks: Dict[str, Any] = {}
-        self.delegated_vehicles: Dict[str, Any] = {}
+        self.charge_overrides: dict[str, list[Any] | None] = {}
+        self.delegated_controls: dict[str, Any] = {}
+        self.manual_schedules: dict[str, list[Any] | None] = {}
+        self.smart_charging_preferences: dict[str, Any] = {}
+        self.remote_locks: dict[str, Any] = {}
+        self.delegated_vehicles: dict[str, Any] = {}
         self.reward_wallet: Any = None
-        self.last_message_at = datetime(1970, 1, 1, 0, 0, 0, 0, pytz.UTC)
+        self.last_message_at = datetime(1970, 1, 1, tzinfo=UTC)
 
         super().__init__(
             hass,
@@ -78,8 +85,8 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         """Update data via library."""
         try:
             _LOGGER.debug("Updating pods and charges")
-            new_pods: List[Pod] = []
-            self.pod_dict: Dict[int, Pod] = None
+            new_pods: list[Pod] = []
+            self.pod_dict: dict[int, Pod] | None = None
 
             self.user = await self.api.async_get_user()
 
@@ -124,14 +131,14 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
             )
 
             # Fetch a list of new charges
-            new_charges: List[Charge] = await self.__fetch_home_charges(
+            new_charges: list[Charge] = await self.__fetch_home_charges(
                 all_charges=should_fetch_all_charges
             )
 
             # We will filter out any of the new charges from the existing list. This will
             # ensure any overlap is not duplicated.
-            new_charge_ids: Set(int) = set([charge.id for charge in new_charges])
-            combined_home_charges: List[Charge] = new_charges + [
+            new_charge_ids: set[int] = {charge.id for charge in new_charges}
+            combined_home_charges: list[Charge] = new_charges + [
                 charge
                 for charge in self.home_charges
                 if charge.id not in new_charge_ids
@@ -151,7 +158,7 @@ Updated Charges: %s\nCombined Charges: %s",
 
             # Create a dictionary so that we can track the last charge for each
             # pod, used o calculate the cost of the last charge
-            last_completed_charges_dict: Dict[str, Charge] = {}
+            last_completed_charges_dict: dict[str, Charge | None] = {}
             for key in new_pods_by_id:
                 last_completed_charges_dict[key] = None
 
@@ -217,10 +224,12 @@ If this issue persists, please contact the developer."
             _LOGGER.exception(exception)
             raise UpdateFailed() from exception
 
-    def __group_pods_by_unit_id(self, pods: List[Pod] = None) -> Dict[int, Pod]:
+    def __group_pods_by_unit_id(
+        self, pods: list[Pod] | None = None
+    ) -> dict[int, Pod]:
         """Given a list of pods, will return a dictionary { pod.unit_id: pod, *** }.
         If no pods are passed, will perfom on self.pods"""
-        pod_dict: Dict[int, Pod] = {}
+        pod_dict: dict[int, Pod] = {}
 
         if pods is None:
             pods = self.pods
@@ -231,10 +240,10 @@ If this issue persists, please contact the developer."
         self.pod_dict = pod_dict
         return self.pod_dict
 
-    async def __fetch_home_charges(self, all_charges: bool = True) -> List[Charge]:
+    async def __fetch_home_charges(self, all_charges: bool = True) -> list[Charge]:
         """Fetch either all charges for a user, or progressively paginate until you have the latest
         set of charges. Filtered to only include 'home' charges"""
-        charges: List[Charge] = []
+        charges: list[Charge] = []
 
         if all_charges:
             charges = await self.api.async_get_all_charges(
@@ -243,12 +252,12 @@ If this issue persists, please contact the developer."
         else:
             # Fetch charges until we have the most recent ones found, should reduce load
             # on the Pod Point servers
-            last_charge_ids: List[int] = [
+            last_charge_ids: list[int] = [
                 pod.charges[0].id
                 for pod in self.pods
                 if (len(pod.charges) > 0) and pod.charges[0].id is not None
             ]
-            charges: List[Charge] = []
+            charges = []
 
             page = 1
             while len(last_charge_ids) > 0:
@@ -282,13 +291,13 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
 
                 page += 1
 
-        home_charges: List[Charge] = list(
+        home_charges: list[Charge] = list(
             filter(lambda charge: charge.location.home is True, charges)
         )
 
         return home_charges
 
-    def __should_fetch_all_charges(self, new_pods: List[Pod]) -> bool:
+    def __should_fetch_all_charges(self, new_pods: list[Pod]) -> bool:
         """Given a list of new pods, should we query for all charges on a users account,
         or just the most recent"""
         fetch_all_charges = False
@@ -299,9 +308,9 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
 
         return fetch_all_charges
 
-    def __combine_pods(self, new_pods_by_id: Dict[str, Pod]) -> List[Pod]:
+    def __combine_pods(self, new_pods_by_id: dict[str, Pod]) -> list[Pod]:
         """Given a new set of pods, combine them with the existing pod data to create a new list"""
-        new_pods: List[Pod] = []
+        new_pods: list[Pod] = []
 
         for previous_pod in self.pods:
             new_pod = new_pods_by_id[previous_pod.unit_id]
@@ -314,7 +323,7 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
 
         return new_pods
 
-    def __pods_match(self, new_pods: List[Pod]) -> bool:
+    def __pods_match(self, new_pods: list[Pod]) -> bool:
         set1 = set((pod.id) for pod in self.pods)
         difference = [pod for pod in new_pods if (pod.id) not in set1]
 
@@ -324,11 +333,12 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
     def __process_repair_notification(
         self, hass: HomeAssistant, firmware: Firmware, pod: Pod
     ):
+        issue_id = f"firmware_update_{pod.ppid}"
         if firmware.update_available:
             ir.async_create_issue(
                 hass,
                 DOMAIN,
-                "firmware_update",
+                issue_id,
                 is_fixable=False,
                 is_persistent=False,
                 learn_more_url="https://pod-point.com/electric-car-news",
@@ -337,9 +347,9 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
                 translation_placeholders={"ppid": pod.ppid},
             )
         else:
-            ir.async_delete_issue(hass, DOMAIN, "firmware_update")
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
 
-    async def __async_update_pods(self) -> List[Pod]:
+    async def __async_update_pods(self) -> list[Pod]:
         # Should we get a limited set of data (subsiquent refreshes)
         if len(self.pods) > 0:
             _LOGGER.debug("Existing pods found, performing a limited data pull")
@@ -350,7 +360,7 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
 
     async def __async_group_pods(
         self, new_pods, new_pods_by_id
-    ) -> Tuple[List[Pod], Dict[str, Pod]]:
+    ) -> tuple[list[Pod], dict[str, Pod]]:
         # Attempt to update our new pods with additional data from the existing pods.
         # This allows us to query less data each refresh, kinder on the Pod Point APIs.
         if self.__pods_match(new_pods=new_pods):
@@ -369,12 +379,12 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
         return (new_pods, new_pods_by_id)
 
     async def __async_refresh_firmware(
-        self, new_pods: List[Pod], new_pods_by_id: Dict[str, Pod]
-    ) -> Dict[str, Pod]:
+        self, new_pods: list[Pod], new_pods_by_id: dict[str, Pod]
+    ) -> dict[str, Pod]:
         _LOGGER.debug("=== FIRMWARE STATUS UPDATE ===")
 
         for pod in new_pods:
-            pod_firmwares: List[Firmware] = await self.api.async_get_firmware(pod=pod)
+            pod_firmwares: list[Firmware] = await self.api.async_get_firmware(pod=pod)
 
             if len(pod_firmwares) <= 0:
                 _LOGGER.warning(
@@ -396,8 +406,8 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
         return new_pods_by_id
 
     async def __async_update_pod_connection_status(
-        self, new_pods_by_id: Dict[str, Pod]
-    ) -> Dict[str, Pod]:
+        self, new_pods_by_id: dict[str, Pod]
+    ) -> dict[str, Pod]:
         _LOGGER.debug("=== POD CONNECTION STATUS UPDATE ===")
 
         # Fetch connection status for each pod
@@ -434,11 +444,13 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
             return await awaitable
         except (AuthError, SessionError):
             raise
-        except Exception as exception:  # Pod Home returns 404 for unavailable features
+        except ApiConnectionError:
+            raise
+        except APIError as exception:  # Pod Home returns 404 for unavailable features
             _LOGGER.debug("Pod Home endpoint %s is unavailable: %s", name, exception)
             return default
 
-    async def __async_update_pod_home_data(self, pods: List[Pod]) -> None:
+    async def __async_update_pod_home_data(self, pods: list[Pod]) -> None:
         """Fetch charger-centric Pod Home state and associate it with legacy pods."""
         if not hasattr(self.api, "async_get_chargers"):
             return
@@ -446,51 +458,65 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
         chargers = await self.api.async_get_chargers()
         self.chargers = {charger.ppid: charger for charger in chargers}
 
-        delegated = await self.__async_optional(
-            self.api.async_get_delegated_vehicles(), [], "delegated vehicles"
+        delegated, self.reward_wallet = await asyncio.gather(
+            self.__async_optional(
+                self.api.async_get_delegated_vehicles(), [], "delegated vehicles"
+            ),
+            self.__async_optional(
+                self.api.async_get_reward_wallet(), None, "reward wallet"
+            ),
         )
         self.delegated_vehicles = {item.ppid: item for item in delegated}
-        self.reward_wallet = await self.__async_optional(
-            self.api.async_get_reward_wallet(), None, "reward wallet"
-        )
 
         for pod in pods:
             charger = self.chargers.get(pod.ppid)
             if charger is None:
                 continue
 
-            self.connectivity_v2[pod.ppid] = await self.__async_optional(
-                self.api.async_get_connectivity_status_v2(charger),
-                None,
-                f"connectivity for {pod.ppid}",
-            )
-            self.tariffs[pod.ppid] = await self.__async_optional(
-                self.api.async_get_tariffs(charger), [], f"tariffs for {pod.ppid}"
-            )
-            self.charge_overrides[pod.ppid] = await self.__async_optional(
-                self.api.async_get_charger_charge_overrides(charger, active_only=True),
-                None,
-                f"charge overrides for {pod.ppid}",
-            )
-            self.delegated_controls[pod.ppid] = await self.__async_optional(
-                self.api.async_get_delegated_control(charger),
-                None,
-                f"delegated control for {pod.ppid}",
-            )
-            self.manual_schedules[pod.ppid] = await self.__async_optional(
-                self.api.async_get_manual_schedules(charger),
-                None,
-                f"manual schedules for {pod.ppid}",
-            )
-            self.smart_charging_preferences[pod.ppid] = await self.__async_optional(
-                self.api.async_get_smart_charging_preferences(charger),
-                None,
-                f"smart charging preferences for {pod.ppid}",
-            )
-            self.remote_locks[pod.ppid] = await self.__async_optional(
-                self.api.async_get_remote_lock(charger),
-                None,
-                f"remote lock for {pod.ppid}",
+            (
+                self.connectivity_v2[pod.ppid],
+                self.tariffs[pod.ppid],
+                self.charge_overrides[pod.ppid],
+                self.delegated_controls[pod.ppid],
+                self.manual_schedules[pod.ppid],
+                self.smart_charging_preferences[pod.ppid],
+                self.remote_locks[pod.ppid],
+            ) = await asyncio.gather(
+                self.__async_optional(
+                    self.api.async_get_connectivity_status_v2(charger),
+                    None,
+                    f"connectivity for {pod.ppid}",
+                ),
+                self.__async_optional(
+                    self.api.async_get_tariffs(charger), [], f"tariffs for {pod.ppid}"
+                ),
+                self.__async_optional(
+                    self.api.async_get_charger_charge_overrides(
+                        charger, active_only=True
+                    ),
+                    None,
+                    f"charge overrides for {pod.ppid}",
+                ),
+                self.__async_optional(
+                    self.api.async_get_delegated_control(charger),
+                    None,
+                    f"delegated control for {pod.ppid}",
+                ),
+                self.__async_optional(
+                    self.api.async_get_manual_schedules(charger),
+                    None,
+                    f"manual schedules for {pod.ppid}",
+                ),
+                self.__async_optional(
+                    self.api.async_get_smart_charging_preferences(charger),
+                    None,
+                    f"smart charging preferences for {pod.ppid}",
+                ),
+                self.__async_optional(
+                    self.api.async_get_remote_lock(charger),
+                    None,
+                    f"remote lock for {pod.ppid}",
+                ),
             )
 
     @staticmethod

@@ -1,6 +1,9 @@
 """Test pod_point setup process."""
 
+from unittest.mock import patch
+
 from homeassistant.config_entries import ConfigEntryState
+from podpointclient.errors import ApiConnectionError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -31,30 +34,37 @@ async def test_setup_unload_and_reload_entry(hass, bypass_get_data):
     # call, no code from custom_components/integration_blueprint/api.py actually runs.
 
     await hass.config_entries.async_setup(config_entry.entry_id)
-    assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert (
-        type(hass.data[DOMAIN][config_entry.entry_id]) == PodPointDataUpdateCoordinator
-    )
+    assert isinstance(config_entry.runtime_data, PodPointDataUpdateCoordinator)
 
     # Reload the entry and assert that the data from above is still there
     assert await async_reload_entry(hass, config_entry) is None
-    assert DOMAIN in hass.data and config_entry.entry_id in hass.data[DOMAIN]
-    assert (
-        type(hass.data[DOMAIN][config_entry.entry_id]) == PodPointDataUpdateCoordinator
-    )
+    assert isinstance(config_entry.runtime_data, PodPointDataUpdateCoordinator)
 
     # Unload the entry and verify that the data has been removed
     assert await async_unload_entry(hass, config_entry)
-    assert DOMAIN not in hass.data
 
 
-# Test that setup is retried when the config entry is not ready
 @pytest.mark.asyncio
-async def test_setup_entry_exception(hass, error_on_get_data):
-    """Test ConfigEntryNotReady when API raises an exception during entry setup."""
+async def test_setup_entry_auth_error(hass, error_on_get_data):
+    """Test an authentication failure starts reauthentication."""
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
     config_entry.add_to_hass(hass)
 
-    # The config entry manager converts ConfigEntryNotReady into a setup retry.
     assert not await hass.config_entries.async_setup(config_entry.entry_id)
+    assert config_entry.state is ConfigEntryState.SETUP_ERROR
+    assert len(hass.config_entries.flow.async_progress()) == 1
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_connection_error(hass, bypass_get_data):
+    """Test a transient API connection failure schedules a setup retry."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+
+    with patch(
+        "podpointclient.client.PodPointClient.async_get_user",
+        side_effect=ApiConnectionError("connection failed"),
+    ):
+        assert not await hass.config_entries.async_setup(config_entry.entry_id)
+
     assert config_entry.state is ConfigEntryState.SETUP_RETRY

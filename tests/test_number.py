@@ -18,7 +18,7 @@ async def test_max_price_unavailable_in_basic_mode(hass, bypass_get_data):
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry.runtime_data
     entity = PodPointSmartChargingMaxPriceNumber(coordinator, entry, 0)
     ppid = entity.pod.ppid
 

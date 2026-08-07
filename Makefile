@@ -1,4 +1,7 @@
-.PHONY: setup setup-debian update-pip install-deps test
+.PHONY: setup setup-debian update-pip install-deps test develop
+
+VENV := venv
+PYTHON := $(VENV)/bin/python
 
 setup-debian:
 	sudo apt-get update
@@ -11,15 +14,14 @@ setup: update-pip install-deps test
 
 update-pip:
 	python3 -m pip install -U pip
-	python3 -m venv venv
-	pip3 install -U setuptools wheel aiodiscover scapy
+	python3 -m venv $(VENV)
+	$(PYTHON) -m pip install -U pip setuptools wheel
 
 install-deps:
-	pip3 install ruamel.yaml
-	pip3 install -r requirements.txt -r requirements_dev.txt -r requirements_test.txt
+	$(PYTHON) -m pip install -r requirements.txt -r requirements_dev.txt -r requirements_test.txt
 
 test:
-	pytest \
+	$(PYTHON) -m pytest \
 		-vv \
 		-qq \
 		--timeout=9 \
@@ -32,4 +34,4 @@ test:
 		tests
 
 develop:
-	scripts/develop
+	$(VENV)/bin/hass --config config --debug

@@ -1,11 +1,9 @@
 """Test pod_point setup process."""
 
-# from unittest import mock
 from datetime import timedelta
-from email.headerregistry import ContentTransferEncodingHeader
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from podpointclient.client import PodPointClient
 from podpointclient.errors import ApiConnectionError, AuthError, SessionError
@@ -15,7 +13,6 @@ from podpointclient.user import User
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.pod_point import async_setup_entry
 from custom_components.pod_point.const import DOMAIN
 from custom_components.pod_point.coordinator import (
     PodPointDataUpdateCoordinator,
@@ -109,7 +106,7 @@ async def test_coordinator_refresh_connection_error(hass, error_on_get_data):
         username="test@example.com", password="password", session=session
     )
 
-    client.async_get_pods = MagicMock(
+    client.async_get_all_pods = MagicMock(
         side_effect=ApiConnectionError("CONNECTION_ERROR_MESSAGE")
     )
 
@@ -139,7 +136,9 @@ async def test_coordinator_refresh_auth_session_error(hass, error_on_get_data):
         username="test@example.com", password="password", session=session
     )
 
-    client.async_get_pods = MagicMock(side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"))
+    client.async_get_all_pods = MagicMock(
+        side_effect=AuthError(401, "AUTH_ERROR_MESSAGE")
+    )
 
     # Setup our data coordinator with the desired scan interval
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
@@ -153,7 +152,7 @@ async def test_coordinator_refresh_auth_session_error(hass, error_on_get_data):
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
 
-    client.async_get_pods = MagicMock(
+    client.async_get_all_pods = MagicMock(
         side_effect=SessionError(401, "AUTH_ERROR_MESSAGE")
     )
 
@@ -180,7 +179,9 @@ async def test_coordinator_refresh_unexpected_exception(hass, error_on_get_data)
         username="test@example.com", password="password", session=session
     )
 
-    client.async_get_pods = MagicMock(side_effect=KeyError("CONNECTION_ERROR_MESSAGE"))
+    client.async_get_all_pods = MagicMock(
+        side_effect=KeyError("CONNECTION_ERROR_MESSAGE")
+    )
 
     # Setup our data coordinator with the desired scan interval
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
@@ -195,4 +196,29 @@ async def test_coordinator_refresh_unexpected_exception(hass, error_on_get_data)
         await coordinator._async_update_data()
 
 
-# TODO: Add a test for repair flow creation and cleanup
+@pytest.mark.asyncio
+async def test_firmware_repairs_are_scoped_per_pod(hass):
+    """Firmware repair issues for one charger must not replace another's."""
+    coordinator = await subject_with_data(hass)
+    pod = coordinator.pods[0]
+    firmware = pod.firmware
+    firmware.update_status.is_update_available = True
+
+    with patch(
+        "custom_components.pod_point.coordinator.ir.async_create_issue"
+    ) as create_issue:
+        coordinator._PodPointDataUpdateCoordinator__process_repair_notification(
+            hass, firmware, pod
+        )
+
+    assert create_issue.call_args.args[2] == f"firmware_update_{pod.ppid}"
+
+    firmware.update_status.is_update_available = False
+    with patch(
+        "custom_components.pod_point.coordinator.ir.async_delete_issue"
+    ) as delete_issue:
+        coordinator._PodPointDataUpdateCoordinator__process_repair_notification(
+            hass, firmware, pod
+        )
+
+    assert delete_issue.call_args.args[2] == f"firmware_update_{pod.ppid}"

@@ -1,7 +1,6 @@
 """Binary sensor platform for pod_point."""
 
 import logging
-from typing import Any, Dict
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -9,7 +8,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.helpers.entity import EntityCategory
 
-from .const import ATTR_CONNECTION_STATE_ONLINE, ATTR_STATE, ATTRIBUTION, DOMAIN
+from .const import ATTR_CONNECTION_STATE_ONLINE
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 
@@ -18,28 +17,33 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup binary_sensor platform."""
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    # Handle coordinator offline on boot - no data will be populated
-    if coordinator.online is False:
-        return
+    coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
+    known_entities: set[tuple[str, str]] = set()
 
-    sensors = []
-    for i in range(len(coordinator.data)):
-        cable_sensor = PodPointCableConnectionSensor(coordinator, entry, i)
-        cable_sensor.pod_id = i
-        sensors.append(cable_sensor)
+    def _async_add_new_entities() -> None:
+        sensors = []
+        for index, pod in enumerate(coordinator.data):
+            candidates = [
+                ("cable", PodPointCableConnectionSensor),
+                ("cloud", PodPointCloudConnectionSensor),
+            ]
+            if coordinator.remote_locks.get(pod.ppid) is not None:
+                candidates.append(("off_mode", PodPointOffModeSensor))
+            charger = coordinator.chargers.get(pod.ppid)
+            if charger is not None and charger.delegated_control_status is not None:
+                candidates.append(("smart_charging", PodPointSmartChargingSensor))
 
-        cloud_sensor = PodPointCloudConnectionSensor(coordinator, entry, i)
-        cloud_sensor.pod_id = i
-        sensors.append(cloud_sensor)
+            for key, entity_type in candidates:
+                entity_key = (pod.ppid, key)
+                if entity_key not in known_entities:
+                    known_entities.add(entity_key)
+                    sensors.append(entity_type(coordinator, entry, index))
 
-        if coordinator.remote_locks.get(coordinator.data[i].ppid) is not None:
-            sensors.append(PodPointOffModeSensor(coordinator, entry, i))
-        charger = coordinator.chargers.get(coordinator.data[i].ppid)
-        if charger is not None and charger.delegated_control_status is not None:
-            sensors.append(PodPointSmartChargingSensor(coordinator, entry, i))
+        if sensors:
+            async_add_devices(sensors)
 
-    async_add_devices(sensors)
+    _async_add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_entities))
 
 
 class PodPointCableConnectionSensor(PodPointEntity, BinarySensorEntity):

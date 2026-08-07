@@ -6,6 +6,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info import dhcp
+from podpointclient.errors import ApiConnectionError
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -136,6 +137,25 @@ async def test_failed_config_flow(hass, error_on_get_data):
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "auth"}
+
+
+@pytest.mark.asyncio
+async def test_config_flow_connection_error(hass):
+    """Test a transient API failure is not reported as invalid credentials."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    with patch(
+        "podpointclient.client.PodPointClient.async_credentials_verified",
+        side_effect=ApiConnectionError("connection failed"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
 
 
 # Our config flow also has an options flow, so we must test it as well.

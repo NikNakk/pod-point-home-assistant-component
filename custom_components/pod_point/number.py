@@ -3,21 +3,32 @@
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.const import UnitOfEnergy
 
-from .const import CONF_CURRENCY, DEFAULT_CURRENCY, DOMAIN
+from .const import CONF_CURRENCY, DEFAULT_CURRENCY
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Pod Home number controls."""
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities = []
-    for index, pod in enumerate(coordinator.data):
-        if coordinator.smart_charging_preferences.get(pod.ppid) is not None:
-            entities.append(
-                PodPointSmartChargingMaxPriceNumber(coordinator, entry, index)
-            )
-    async_add_entities(entities)
+    coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
+    known_pods: set[str] = set()
+
+    def _add_new_entities() -> None:
+        entities = []
+        for index, pod in enumerate(coordinator.data):
+            if (
+                pod.ppid not in known_pods
+                and coordinator.smart_charging_preferences.get(pod.ppid) is not None
+            ):
+                known_pods.add(pod.ppid)
+                entities.append(
+                    PodPointSmartChargingMaxPriceNumber(coordinator, entry, index)
+                )
+        if entities:
+            async_add_entities(entities)
+
+    _add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
 class PodPointSmartChargingMaxPriceNumber(PodPointEntity, NumberEntity):
@@ -51,5 +62,7 @@ class PodPointSmartChargingMaxPriceNumber(PodPointEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         charger = self.coordinator.chargers[self.pod.ppid]
-        await self.coordinator.api.async_set_smart_charging_max_price(charger, value)
+        await self.coordinator.async_api_call(
+            self.coordinator.api.async_set_smart_charging_max_price(charger, value)
+        )
         await self.coordinator.async_request_refresh()

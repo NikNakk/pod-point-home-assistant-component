@@ -4,7 +4,6 @@ from math import isclose
 
 from homeassistant.components.select import SelectEntity
 
-from .const import DOMAIN
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 
@@ -16,18 +15,34 @@ BASIC_MODE_ALWAYS_ON = "Always on"
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Pod Home smart-charging selectors."""
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities = []
-    for index, pod in enumerate(coordinator.data):
-        if pod.ppid in coordinator.chargers:
-            entities.append(PodPointBasicChargingModeSelect(coordinator, entry, index))
-        if coordinator.smart_charging_preferences.get(
-            pod.ppid
-        ) is not None and _tariff_prices(coordinator, pod.ppid):
-            entities.append(
-                PodPointSmartChargingPrioritySelect(coordinator, entry, index)
-            )
-    async_add_entities(entities)
+    coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
+    known_entities: set[tuple[str, str]] = set()
+
+    def _add_new_entities() -> None:
+        entities = []
+        for index, pod in enumerate(coordinator.data):
+            candidates = []
+            if pod.ppid in coordinator.chargers:
+                candidates.append(("basic_mode", PodPointBasicChargingModeSelect))
+            if (
+                coordinator.smart_charging_preferences.get(pod.ppid) is not None
+                and _tariff_prices(coordinator, pod.ppid)
+            ):
+                candidates.append(
+                    ("smart_priority", PodPointSmartChargingPrioritySelect)
+                )
+
+            for key, entity_type in candidates:
+                entity_key = (pod.ppid, key)
+                if entity_key not in known_entities:
+                    known_entities.add(entity_key)
+                    entities.append(entity_type(coordinator, entry, index))
+
+        if entities:
+            async_add_entities(entities)
+
+    _add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
 def _tariff_prices(
@@ -74,7 +89,9 @@ class PodPointSmartChargingPrioritySelect(PodPointEntity, SelectEntity):
         prices = _tariff_prices(self.coordinator, self.pod.ppid)
         price = min(prices) if option == PRIORITISE_LOWEST_COST else max(prices)
         charger = self.coordinator.chargers[self.pod.ppid]
-        await self.coordinator.api.async_set_smart_charging_max_price(charger, price)
+        await self.coordinator.async_api_call(
+            self.coordinator.api.async_set_smart_charging_max_price(charger, price)
+        )
         await self.coordinator.async_request_refresh()
 
 
@@ -117,15 +134,13 @@ class PodPointBasicChargingModeSelect(PodPointEntity, SelectEntity):
     async def async_select_option(self, option: str) -> None:
         charger = self.coordinator.chargers[self.pod.ppid]
         if option == BASIC_MODE_ALWAYS_ON:
-            result = await self.coordinator.api.async_set_charger_charge_mode_always_on(
-                charger
+            result = await self.coordinator.async_api_call(
+                self.coordinator.api.async_set_charger_charge_mode_always_on(charger)
             )
             succeeded = result is not None
         else:
-            succeeded = (
-                await self.coordinator.api.async_set_charger_charge_mode_scheduled(
-                    charger
-                )
+            succeeded = await self.coordinator.async_api_call(
+                self.coordinator.api.async_set_charger_charge_mode_scheduled(charger)
             )
         if succeeded:
             await self.coordinator.async_request_refresh()

@@ -1,14 +1,13 @@
 """Switch platform for pod_point."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
 
 from homeassistant.components.switch import SwitchEntity
 from podpointclient.charge_mode import ChargeMode
 from podpointclient.client import PodPointClient
-import pytz
 
-from .const import DOMAIN, SWITCH_ICON
+from .const import SWITCH_ICON
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 
@@ -17,23 +16,28 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    # Handle coordinator offline on boot - no data will be populated
-    if coordinator.online is False:
-        return
+    coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
+    known_pods: set[str] = set()
 
-    switches = []
+    def _add_new_entities() -> None:
+        switches = []
+        for index, pod in enumerate(coordinator.data):
+            if pod.ppid in known_pods:
+                continue
+            known_pods.add(pod.ppid)
+            if pod.ppid in coordinator.chargers:
+                # Preserve the legacy smart-mode entity unique ID while moving its
+                # implementation to the charger-centric delegated-control endpoint.
+                switches.append(PodPointChargeModeSwitch(coordinator, entry, index))
+            else:
+                switches.append(
+                    PodPointChargingAllowedSwitch(coordinator, entry, index)
+                )
+        if switches:
+            async_add_devices(switches)
 
-    for i in range(len(coordinator.data)):
-        if coordinator.data[i].ppid in coordinator.chargers:
-            # Preserve the legacy smart-mode entity unique ID while moving its
-            # implementation to the charger-centric delegated-control endpoint.
-            switches.append(PodPointChargeModeSwitch(coordinator, entry, i))
-            continue
-
-        charging_allowed_switch = PodPointChargingAllowedSwitch(coordinator, entry, i)
-        switches.append(charging_allowed_switch)
-    async_add_devices(switches)
+    _add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
 class PodPointChargingAllowedSwitch(PodPointEntity, SwitchEntity):
@@ -46,9 +50,11 @@ class PodPointChargingAllowedSwitch(PodPointEntity, SwitchEntity):
     async def async_turn_on(self, **kwargs):  # pylint: disable=unused-argument
         """Allow charging (clear schedule)"""
         api: PodPointClient = self.coordinator.api
-        await api.async_set_schedule(enabled=False, pod=self.pod)
+        await self.coordinator.async_api_call(
+            api.async_set_schedule(enabled=False, pod=self.pod)
+        )
 
-        self.coordinator.last_message_at = datetime.now(pytz.UTC)
+        self.coordinator.last_message_at = datetime.now(UTC)
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs):  # pylint: disable=unused-argument
@@ -59,9 +65,11 @@ class PodPointChargingAllowedSwitch(PodPointEntity, SwitchEntity):
         if self._override_to_on():
             return False
 
-        await api.async_set_schedule(enabled=True, pod=self.pod)
+        await self.coordinator.async_api_call(
+            api.async_set_schedule(enabled=True, pod=self.pod)
+        )
 
-        self.coordinator.last_message_at = datetime.now(pytz.UTC)
+        self.coordinator.last_message_at = datetime.now(UTC)
         await self.coordinator.async_request_refresh()
 
     @property
@@ -97,16 +105,20 @@ class PodPointChargeModeSwitch(PodPointEntity, SwitchEntity):
         """Enable delegated smart charging."""
         api: PodPointClient = self.coordinator.api
         charger = self.coordinator.chargers[self.pod.ppid]
-        if await api.async_set_charger_smart_charging(charger, True):
-            self.coordinator.last_message_at = datetime.now(pytz.UTC)
+        if await self.coordinator.async_api_call(
+            api.async_set_charger_smart_charging(charger, True)
+        ):
+            self.coordinator.last_message_at = datetime.now(UTC)
             await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs):  # pylint: disable=unused-argument
         """Disable delegated smart charging."""
         api: PodPointClient = self.coordinator.api
         charger = self.coordinator.chargers[self.pod.ppid]
-        if await api.async_set_charger_smart_charging(charger, False):
-            self.coordinator.last_message_at = datetime.now(pytz.UTC)
+        if await self.coordinator.async_api_call(
+            api.async_set_charger_smart_charging(charger, False)
+        ):
+            self.coordinator.last_message_at = datetime.now(UTC)
             await self.coordinator.async_request_refresh()
 
     @property

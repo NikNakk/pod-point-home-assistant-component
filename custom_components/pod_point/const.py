@@ -1,5 +1,6 @@
 """Constants for pod_point."""
 
+from homeassistant.const import Platform
 from podpointclient.version import __version__ as pod_point_client_version
 
 from .version import __version__ as integration_version
@@ -7,7 +8,6 @@ from .version import __version__ as integration_version
 # Base component constants
 NAME = "Pod Point"
 DOMAIN = "pod_point"
-DOMAIN_DATA = f"{DOMAIN}_data"
 VERSION = integration_version
 ATTRIBUTION = "Data provided by https://pod-point.com/"
 ISSUE_URL = "https://github.com/mattrayner/pod-point-home-assistant-component/issues"
@@ -21,20 +21,18 @@ ICON_EV_STATION = "mdi:ev-station"
 SWITCH_ICON = ICON_EV_STATION
 
 # Platforms
-BINARY_SENSOR = "binary_sensor"
-SENSOR = "sensor"
-NUMBER = "number"
-SELECT = "select"
-SWITCH = "switch"
-UPDATE = "update"
+BINARY_SENSOR = Platform.BINARY_SENSOR
+SENSOR = Platform.SENSOR
+NUMBER = Platform.NUMBER
+SELECT = Platform.SELECT
+SWITCH = Platform.SWITCH
+UPDATE = Platform.UPDATE
 PLATFORMS = [BINARY_SENSOR, SENSOR, NUMBER, SELECT, SWITCH, UPDATE]
-ENERGY = "energy"
 
 SERVICE_CHARGE_NOW = "charge_now"
 SERVICE_STOP_CHARGE_NOW = "stop_charge_now"
 
 # Configuration and options
-CONF_ENABLED = "enabled"
 CONF_EMAIL = "email"
 CONF_PASSWORD = "password"
 CONF_SCAN_INTERVAL = "scan_interval"
@@ -54,8 +52,6 @@ ATTR_HOME = "home"
 ATTR_PAYG = "payg"
 ATTR_PUBLIC = "public"
 ATTR_EVZONE = "ev_zone"
-ATTR_LAT = "lat"
-ATTR_LNG = "lng"
 ATTR_UNIT_ID = "unit_id"
 ATTR_COMMISSIONED = "date_commissioned"
 ATTR_CREATED = "date_created"
@@ -115,10 +111,6 @@ ATTR_SECONDS = "seconds"
 
 # Flags
 CHARGING_FLAG = ATTR_STATE_CHARGING
-
-# API Details
-BASE_API_VERSION = "v4"
-BASE_API_URL = "https://api.pod-point.com/" + BASE_API_VERSION
 
 # Image serving
 APP_IMAGE_URL_BASE = f"/api/{DOMAIN}/static"

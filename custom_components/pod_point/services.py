@@ -1,14 +1,15 @@
 """Services for the Pod Point integration."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 import logging
-from typing import List
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 from podpointclient.client import PodPointClient
+from podpointclient.errors import APIError, RequestValidationError
 from podpointclient.pod import Pod
-import pytz
 import voluptuous as vol
 
 from .const import (
@@ -25,21 +26,24 @@ from .coordinator import PodPointDataUpdateCoordinator
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
-class PodPointServiceException(Exception):
+class PodPointServiceException(ServiceValidationError):
     """Exception for Pod Point services."""
 
 
 async def async_register_services(hass: HomeAssistant) -> None:
     """Register services for the Pod Point integration, if not registered yet."""
 
-    if hass.services.has_service(DOMAIN, SERVICE_CHARGE_NOW):
-        return
-    else:
+    if not hass.services.has_service(DOMAIN, SERVICE_CHARGE_NOW):
         _LOGGER.info("Registering SERVICE_CHARGE_NOW for Pod Point integration")
 
         async def async_charge_now_service(call: ServiceCall):
-            coordinator = await get_coordinator(hass, call.data[ATTR_CONFIG_ENTRY_ID])
-            await handle_charge_now(hass, coordinator, call)
+            coordinator = get_coordinator(hass, call.data[ATTR_CONFIG_ENTRY_ID])
+            try:
+                await handle_charge_now(coordinator, call)
+            except RequestValidationError as err:
+                raise PodPointServiceException(str(err)) from err
+            except APIError as err:
+                raise HomeAssistantError("Pod Point rejected the request") from err
 
         hass.services.async_register(
             DOMAIN,
@@ -61,14 +65,17 @@ async def async_register_services(hass: HomeAssistant) -> None:
             ),
         )
 
-    if hass.services.has_service(DOMAIN, SERVICE_STOP_CHARGE_NOW):
-        return
-    else:
+    if not hass.services.has_service(DOMAIN, SERVICE_STOP_CHARGE_NOW):
         _LOGGER.info("Registering SERVICE_STOP_CHARGE_NOW for Pod Point integration")
 
         async def async_stop_charge_now_service(call: ServiceCall):
-            coordinator = await get_coordinator(hass, call.data[ATTR_CONFIG_ENTRY_ID])
-            await handle_stop_charge_now(hass, coordinator, call)
+            coordinator = get_coordinator(hass, call.data[ATTR_CONFIG_ENTRY_ID])
+            try:
+                await handle_stop_charge_now(coordinator)
+            except RequestValidationError as err:
+                raise PodPointServiceException(str(err)) from err
+            except APIError as err:
+                raise HomeAssistantError("Pod Point rejected the request") from err
 
         hass.services.async_register(
             DOMAIN,
@@ -78,31 +85,26 @@ async def async_register_services(hass: HomeAssistant) -> None:
         )
 
 
-async def async_deregister_services(hass: HomeAssistant) -> None:
-    """Deregister services for the Pod Point integration"""
-
-    hass.services.async_remove(DOMAIN, SERVICE_CHARGE_NOW)
-
-    hass.services.async_remove(DOMAIN, SERVICE_STOP_CHARGE_NOW)
-
-
-async def get_coordinator(
-    hass: HomeAssistant, config_entry_id: str
-) -> PodPointDataUpdateCoordinator:
-    """Get the right Pod Point Data Coordinator based on the device id, else get the default one."""
-    if config_entry_id not in hass.data[DOMAIN]:
-        raise ValueError(f"Config entry with id {config_entry_id} not found!")
-
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][config_entry_id]
-    return coordinator
+def get_coordinator(hass: HomeAssistant, config_entry_id: str) -> PodPointDataUpdateCoordinator:
+    """Return the coordinator for a loaded Pod Point config entry."""
+    entry = hass.config_entries.async_get_entry(config_entry_id)
+    if entry is None:
+        raise PodPointServiceException(
+            f"Config entry with id {config_entry_id} was not found"
+        )
+    if entry.state is not ConfigEntryState.LOADED:
+        raise PodPointServiceException(
+            f"Config entry with id {config_entry_id} is not loaded"
+        )
+    return entry.runtime_data
 
 
 async def handle_charge_now(
-    hass: HomeAssistant, coordinator: PodPointDataUpdateCoordinator, call: ServiceCall
+    coordinator: PodPointDataUpdateCoordinator, call: ServiceCall
 ) -> None:
     """Handle the call for the add_product service."""
     api: PodPointClient = coordinator.api
-    pods: List[Pod] = coordinator.pods
+    pods: list[Pod] = coordinator.pods
     pod: Pod
     if len(pods) == 1:
         pod = pods[0]
@@ -135,16 +137,16 @@ async def handle_charge_now(
             pod=pod, hours=hours, minutes=minutes, seconds=seconds
         )
 
-    coordinator.last_message_at = datetime.now(pytz.UTC)
+    coordinator.last_message_at = datetime.now(UTC)
     await coordinator.async_request_refresh()
 
 
 async def handle_stop_charge_now(
-    hass: HomeAssistant, coordinator: PodPointDataUpdateCoordinator, call: ServiceCall
+    coordinator: PodPointDataUpdateCoordinator,
 ) -> None:
     """Handle the call for the add_product service."""
     api: PodPointClient = coordinator.api
-    pods: List[Pod] = coordinator.pods
+    pods: list[Pod] = coordinator.pods
     pod: Pod
     if len(pods) == 1:
         pod = pods[0]
@@ -159,5 +161,5 @@ async def handle_stop_charge_now(
     else:
         await api.async_delete_charge_override(pod=pod)
 
-    coordinator.last_message_at = datetime.now(pytz.UTC)
+    coordinator.last_message_at = datetime.now(UTC)
     await coordinator.async_request_refresh()

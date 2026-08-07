@@ -1,29 +1,18 @@
 """Test pod_point sensors."""
 
-import asyncio
 from datetime import datetime, timedelta
-from typing import List, Union
-from unittest.mock import Mock, call, patch
+from unittest.mock import Mock
 
-import aiohttp
-from homeassistant.components import switch
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
-from homeassistant.components.switch import SERVICE_TURN_OFF, SERVICE_TURN_ON
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    UnitOfEnergy,
-)
-import homeassistant.helpers.aiohttp_client as client
+from homeassistant.const import UnitOfEnergy
 from podpointclient.charge_override import ChargeOverride
-from podpointclient.pod import Pod
 from podpointclient.reward_wallet import RewardWallet
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.pod_point import async_setup_entry
 from custom_components.pod_point.const import (
     ATTR_STATE,
     ATTR_STATE_AVAILABLE,
@@ -37,8 +26,6 @@ from custom_components.pod_point.const import (
     ATTR_STATE_UNAVAILABLE,
     ATTR_STATE_WAITING,
     DOMAIN,
-    SENSOR,
-    SWITCH,
 )
 from custom_components.pod_point.sensor import (
     PodPointAccountBalanceEntity,
@@ -49,11 +36,12 @@ from custom_components.pod_point.sensor import (
 )
 
 from .const import MOCK_CONFIG
-from .fixtures import POD_COMPLETE_FIXTURE
 from .test_coordinator import subject_with_data as coordinator_with_data
 
 
-async def setup_sensors(hass, reward_wallet=None) -> List[PodPointSensor]:
+async def setup_sensors(
+    hass, reward_wallet=None
+) -> tuple[MockConfigEntry, list[PodPointSensor | PodPointAccountBalanceEntity]]:
     """Setup sensors within the test environment"""
     coordinator = await coordinator_with_data(hass)
     coordinator.reward_wallet = reward_wallet
@@ -61,15 +49,13 @@ async def setup_sensors(hass, reward_wallet=None) -> List[PodPointSensor]:
     # Create a mock entry so we don't have to go through config flow
     config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
 
-    hass.data[DOMAIN] = {}
-    hass.data[DOMAIN][config_entry.entry_id] = coordinator
+    config_entry.runtime_data = coordinator
 
     mock = Mock()
 
     await async_setup_entry(hass, config_entry, mock)
 
-    print(mock.call_args_list)
-    sensors: List[Union(PodPointSensor, PodPointAccountBalanceEntity)] = (
+    sensors: list[PodPointSensor | PodPointAccountBalanceEntity] = (
         mock.call_args_list[0][0][0]
     )
 
@@ -183,11 +169,11 @@ async def test_total_energy_pod_sensor(hass, bypass_get_data):
     assert 0.0 == total_energy.native_value
     assert UnitOfEnergy.KILO_WATT_HOUR == total_energy.native_unit_of_measurement
     assert "mdi:lightning-bolt-outline" == total_energy.icon
-    assert False == total_energy.is_on
+    assert total_energy.is_on is False
 
     total_energy.extra_attrs[ATTR_STATE] = "charging"
     assert "mdi:lightning-bolt" == total_energy.icon
-    assert True == total_energy.is_on
+    assert total_energy.is_on is True
 
     assert total_energy.options is None
 
@@ -209,6 +195,7 @@ async def test_current_energy_pod_sensor(hass, bypass_get_data):
     assert SensorDeviceClass.ENERGY == current_energy.device_class
     assert SensorStateClass.TOTAL == current_energy.state_class
     assert 0.0 == current_energy.native_value
+    assert current_energy.last_reset is None
     assert "mdi:car-electric" == current_energy.icon
 
     current_energy.extra_state_attributes[ATTR_STATE] = "foo"
@@ -404,8 +391,8 @@ async def test_balance_sensor(hass, bypass_get_data):
 
 
 @pytest.mark.asyncio
-async def test_charge_mode_sensor(hass, bypass_get_data):
-    """Tests for pod total charge time sensor."""
+async def test_charge_override_sensor(hass, bypass_get_data):
+    """Test the charge override sensor."""
     (_, sensors) = await setup_sensors(hass)
 
     override: PodPointChargeOverrideEntity
@@ -435,7 +422,7 @@ async def test_charge_mode_sensor(hass, bypass_get_data):
 
 
 @pytest.mark.asyncio
-async def test_charge_override_sensor(hass, bypass_get_data):
+async def test_charge_mode_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
     (_, sensors) = await setup_sensors(hass)
 
@@ -452,8 +439,8 @@ async def test_charge_override_sensor(hass, bypass_get_data):
 
 
 @pytest.mark.asyncio
-async def test_charge_override_sensor(hass, bypass_get_data):
-    """Tests for pod total charge time sensor."""
+async def test_signal_strength_sensor(hass, bypass_get_data):
+    """Test the signal strength sensor."""
     (_, sensors) = await setup_sensors(hass)
 
     signal_strength = sensors[4]
@@ -485,7 +472,7 @@ async def test_last_message_sensor(hass, bypass_get_data):
     assert "Last Message Received" == last_message.name
 
     assert SensorDeviceClass.TIMESTAMP == last_message.device_class
-    assert None == last_message.native_value
+    assert last_message.native_value is None
     assert last_message.extra_state_attributes == {
         "attribution": "Data provided by https://pod-point.com/",
         "integration": "pod_point",

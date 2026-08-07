@@ -1,50 +1,23 @@
 """Test pod_point switch."""
 
-# import asyncio
-from datetime import datetime, timedelta
-from email.utils import encode_rfc2231
-from typing import List
-from unittest.mock import Mock, call, patch
+from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 
-# import aiohttp
-from homeassistant.components import switch
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorStateClass,
-)
-from homeassistant.components.switch import SERVICE_TURN_OFF, SERVICE_TURN_ON
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    UnitOfEnergy,
-)
-import homeassistant.helpers.aiohttp_client as client
 from podpointclient.charge_mode import ChargeMode
 from podpointclient.pod import Pod
 from podpointclient.schedule import Schedule, ScheduleStatus
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-import pytz
 
-from custom_components.pod_point import async_setup_entry
 from custom_components.pod_point.const import (
-    ATTR_STATE,
     ATTR_STATE_AVAILABLE,
     ATTR_STATE_OUT_OF_SERVICE,
     ATTR_STATE_UNAVAILABLE,
-    DEFAULT_NAME,
     DOMAIN,
-    SENSOR,
-    SWITCH,
 )
 from custom_components.pod_point.entity import PodPointEntity
-from custom_components.pod_point.sensor import (
-    PodPointSensor,
-    PodPointTotalEnergySensor,
-    async_setup_entry,
-)
 
 from .const import MOCK_CONFIG
-from .fixtures import POD_COMPLETE_FIXTURE
 from .test_coordinator import subject_with_data as coordinator_with_data
 
 
@@ -65,7 +38,7 @@ async def test_pod_point_entity(hass, bypass_get_data):
 
     assert 0 == entity.pod_id
 
-    assert Pod == type(entity.pod)
+    assert type(entity.pod) is Pod
     assert "pod_point_12234_PSL-123456" == entity.unique_id
     assert True is entity.available
 
@@ -73,6 +46,17 @@ async def test_pod_point_entity(hass, bypass_get_data):
     assert False is entity.available
 
     entity.coordinator.online = True
+
+    original_pod = entity.pod
+    other_pod = deepcopy(original_pod)
+    other_pod.id = 99999
+    other_pod.ppid = "PSL-OTHER"
+    entity.coordinator.data = [other_pod, original_pod]
+    assert entity.pod is original_pod
+
+    entity.coordinator.data = [other_pod]
+    assert entity.available is False
+    entity.coordinator.data = [original_pod]
 
     assert {
         "identifiers": {("pod_point", "123456789")},
@@ -153,7 +137,6 @@ async def test_pod_point_entity(hass, bypass_get_data):
         "id": 12234,
         "integration": "pod_point",
         "last_contact_at": "2022-02-15T11:18:56+00:00",
-        "location": {"lat": 0.12345, "lng": 2.45678901},
         "model": {
             "id": 123,
             "image_url": None,
@@ -324,7 +307,7 @@ async def test_pod_point_entity(hass, bypass_get_data):
     assert "/api/pod_point/static/uc.png" == entity.image
 
     entity.pod.model.name = None
-    assert None == entity.image
+    assert entity.image is None
 
     # Test states for ev and evse suspended
     assert "charging" == entity.state
@@ -347,8 +330,8 @@ async def test_pod_point_entity(hass, bypass_get_data):
     assert entity.state == "out-of-service"
 
     # Test pending status
-    entity.coordinator.last_message_at = datetime.now(tz=pytz.utc)
-    entity.pod.last_message_at = datetime.now(tz=pytz.utc) - timedelta(minutes=5)
+    entity.coordinator.last_message_at = datetime.now(tz=UTC)
+    entity.pod.last_message_at = datetime.now(tz=UTC) - timedelta(minutes=5)
     entity._PodPointEntity__update_attrs()
     assert entity.state == "pending"
 
@@ -359,7 +342,7 @@ async def test_compare_state(hass, bypass_get_data):
     entity: PodPointEntity = await setup_entity(hass)
 
     # When both states are None
-    assert None == entity.compare_state(None, None)
+    assert entity.compare_state(None, None) is None
 
     # When a state only is passed
     assert "foo" == entity.compare_state("foo", None)

@@ -19,7 +19,7 @@ charge_now:
       selector:
         number:
           min: 0
-          max: 23
+          max: 24
     minutes:
       name: Minute(s)
       description: How many minutes would you like to enable 'Charge Now' for?
