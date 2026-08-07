@@ -12,6 +12,8 @@
 
 _Unofficial component to integrate with [Pod Point][pod_point_web] Solo/Solo 3 charging points._
 
+**This is a fork of [mattrayner's Pod Point][pod_point] integration to test out using the new API used by the Pod Home app.
+
 > **NOTE:** PodPoint have made changes to their authentication system in June 2023 which may result in existing connections reporting Invalid Credentials, and users being unable to log in again with their existing password. 
 > This can be fixed by going to https://charge.pod-point.com/login and reseting your password, and then re-authenticate with the integration.
 
@@ -305,6 +307,6 @@ make test
 [forum]: https://community.home-assistant.io/
 [license-shield]: https://img.shields.io/github/license/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
 [maintenance-shield]: https://img.shields.io/badge/maintainer-Matt%20Rayner-blue.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/v/release/:user/:repo
 [releases]: https://github.com/mattrayner/pod-point-home-assistant-component/releases
 [hacs-add-repo]: https://hacs.xyz/docs/faq/custom_repositories
