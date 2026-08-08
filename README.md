@@ -10,50 +10,59 @@
 
 [![Community Forum][forum-shield]][forum]
 
-_Unofficial component to integrate with [Pod Point][pod_point_web] Solo/Solo 3 charging points._
+_Unofficial Home Assistant integration for [Pod Point][pod_point_web] Solo, Solo 3,
+and Solo 3S home chargers._
 
-**This is a fork of [mattrayner's Pod Point][pod_point] integration to test out using the new API used by the Pod Home app.**
+This fork of [mattrayner's Pod Point integration][pod_point] uses the charger-centric
+**Pod Home API as its primary interface**. It follows the current Pod Home app for
+live charger state, boosts, tariffs, charging modes, delegated smart charging,
+remote off-mode, and rewards. The older Pod Point API is retained only as a
+limited compatibility fallback for accounts or chargers that are not yet
+available through the Home API.
 
 > **NOTE:** PodPoint have made changes to their authentication system in June 2023 which may result in existing connections reporting Invalid Credentials, and users being unable to log in again with their existing password. 
 > This can be fixed by going to https://charge.pod-point.com/login and reseting your password, and then re-authenticate with the integration.
 
-**This component will set up the following platforms and services.**
+## Features
 
-Platform | Description
--- | --
-`binary_sensor` | Shows if the pod is connected to a vehicle.
-`sensor` | Show info from Pod Point API.
-`sensor` (Total Energy) | Show a combined KWh value from all charges for a given pod.
-`sensor` (Current Charge Energy) | Show the KWh for the current charge session (or 0).
-`sensor` (*Total Cost) | Show the total cost of all ***completed* charges.
-`sensor` (Last ***Completed* Charge Cost) | Show the total cost of the last ***completed* charge.
-`sensor` (Completed charge time) | Show a combined 'charge time' value from all charges for a given pod.
-`sensor` (Balance) | Shows the balance on your PodPoint account.
-`sensor` (Charge Mode) | Shows the charge mode your pod is currently in/
-`sensor` (***Charge Override End Time) | Shows the end time for any configured 'charge now' override.
-`sensor` (Signal Strength) | Shows WiFi signal strength of a given pod.
-`sensor` (Last message received) | When was a message last received from a given pod.
-`sensor` (Cloud connection status) | Status of pods connection to the cloud.
-`select` (Smart charging priority) | Prioritise a complete charge or the lowest tariff cost.
-`select` (Basic charging mode) | Select Scheduled or Always on while smart charging is inactive.
-`switch` (****Allow Charging) | Legacy chargers only: enable/disable charging using schedules.
-`switch` (Smart Charge Mode) | Enable or disable charger-centric delegated smart charging.
-`update` (Firmware Update) | Shows the current firmware version for your device and alerts if an update is available
+The integration creates the following core entities:
 
-> ***Total cost is based on the energy provider and kWh cost set in Pod Point.**
+Platform | Entities
+--- | ---
+`binary_sensor` | Cable status and cloud connection
+`sensor` | Charger status, charge mode, boost end time, signal strength, last message, current and total energy, completed charge time, charge costs, and account balance
+`update` | Installed firmware and update availability
 
-> ****Charges are considered complete by Pod Point when you disconnect the vehicle, not when power delivery stops.**
+The Home API also provides these entities when the corresponding feature and data
+are available on the account:
 
-> *****Charge override end time will be 'Unknown' if there is no charge override ('charge now') set. Or, the time when the charge override ends.**
+Platform | Entities
+--- | ---
+`binary_sensor` | Pod Home smart charging and remote off-mode status
+`sensor` | Connection quality, cheapest tariff, smart-charging maximum price, delegated vehicle battery, and reward wallet balances and points
+`number` | Editable smart-charging maximum price
+`select` | Smart charging priority and basic charging mode (Scheduled or Always on)
+`switch` | Smart Charge Mode, backed by Pod Home delegated smart charging
 
-> ******When in either `Manual` or `Override` charge mode, the `Allow Charging` switch is inactive. This is because setting a schedule will not affect the charge in these modes.**
+Account balance and reward-wallet entities are grouped on a virtual **Pod Point
+Account** device. Reward entities are created only when the Home API returns a
+wallet for the account.
 
-Service | Params
----|---
-`charge_now` - Set a charge override for a time period | `account` - Pod Point account we're setting `charge_now` for.
-&nbsp; | `hours` (0-24) - How many hours should the charge override last for?
-&nbsp; | `minutes` (0-59) - How many minutes should the charge override last for?
-&nbsp; | `seconds` (0-59) - How many seconds should the charge override last for?
+> Charge cost entities use the energy price configured in Pod Point. Pod Point
+> considers a charge complete when the vehicle is disconnected, not when power
+> delivery stops.
+
+### Services
+
+Service | Description | Parameters
+--- | --- | ---
+`pod_point.charge_now` | Start a timed charger boost | `config_entry_id`, plus at least one of `hours` (0–24), `minutes` (0–59), or `seconds` (0–59)
+`pod_point.stop_charge_now` | Stop the active charger boost | `config_entry_id`
+
+These services create and remove Pod Home charger boosts. They use the legacy
+charge-override endpoint only for a charger that is unavailable through the Home
+API. Accounts with more than one charger are not currently supported by these
+services.
 
 ![example][exampleimg]
 ![example][chargetimeimg]
@@ -143,29 +152,10 @@ If you want to add Pod Point stats to the built in energy dashboard, you should 
 
 > *Note:* The Pod Point APIs perform some rounding on the kWh values returned meaning they may be sightly lower than the true energy consumed. We are unable to address this within the component.
 
-## Pod Home features
+## Pod Home API behavior
 
-The integration uses the charger-centric Pod Home endpoints for live connectivity
-and charging state, boosts, tariffs, delegated smart charging, remote off-mode,
-and the reward wallet. Existing Pod entities retain their unique IDs during the
-migration.
-
-When available for your account, Home Assistant also creates:
-
-* Reward cash balance, allowance, and points sensors.
-* Cheapest tariff and smart-charging maximum-price sensors.
-* An editable smart-charging maximum-price number entity.
-* Delegated vehicle battery, Pod Home smart-charging, and off-mode sensors.
-
-Account balance and reward-wallet entities are grouped on a virtual **Pod Point
-Account** device. The reward entities and device are only created when the wallet
-API returns data for the account.
-
-The existing `charge_now` and `stop_charge_now` services create and remove Pod
-Home charger boosts. The legacy Charging Allowed and Smart Charge Mode switches
-are not created for Pod Home chargers because those legacy write endpoints return
-HTTP 403. Accounts or chargers that have not yet moved to the new API continue to
-use the legacy controls.
+Existing charger entities retain their unique IDs when moving from the legacy API
+to the Home API. This avoids creating duplicate entities during migration.
 
 The Smart charging priority selector mirrors the app. “Prioritise a complete
 charge” sets the preference to the highest configured tariff-period price, while
@@ -181,6 +171,18 @@ Manual schedules are fetched into coordinator data but are not exposed as dozens
 of per-day entities. A future integration action accepting and validating one
 complete seven-day schedule is the cleanest Home Assistant interface because the
 Pod Home API replaces all seven entries atomically, including overnight periods.
+
+### Legacy API compatibility
+
+The legacy Pod Point API is no longer the integration's main interface. It is used
+on a best-effort basis only when a charger is not returned by the Home API. Such
+chargers receive the older **Charging Allowed** schedule switch instead of the Pod
+Home smart-charging controls, and do not receive Home-only tariff, reward,
+delegated-vehicle, remote off-mode, or smart-charging preference entities.
+
+Legacy compatibility is maintained to avoid abruptly dropping older chargers,
+but new features are developed against the Home API and equivalent behavior is
+not guaranteed for the fallback path.
 
 ## Cost sensors
 
@@ -230,10 +232,12 @@ entities:
     name: Charge Override Time Ends
   - entity: binary_sensor.psl_xxxxxx_cable_status
     name: Cable Status
-  - entity: switch.psl_xxxxxx_charging_allowed
-    name: Charging Allowed
   - entity: switch.psl_xxxxxx_smart_charge_mode
     name: Smart Charge Mode
+  - entity: select.psl_xxxxxx_basic_charging_mode
+    name: Basic Charging Mode
+  - entity: select.psl_xxxxxx_smart_charging_priority
+    name: Smart Charging Priority
   - entity: sensor.psl_xxxxxx_current_energy
     name: Current Energy
   - entity: sensor.psl_xxxxxx_total_energy
