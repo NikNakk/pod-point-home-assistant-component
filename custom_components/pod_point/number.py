@@ -19,15 +19,15 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     def _add_new_entities() -> None:
         entities = []
-        for index, pod in enumerate(coordinator.data):
+        for index, charger in enumerate(coordinator.data):
             candidates = [("charge_now_duration", PodPointChargeNowDurationNumber)]
-            if coordinator.smart_charging_preferences.get(pod.ppid) is not None:
+            if coordinator.smart_charging_preferences.get(charger.ppid) is not None:
                 candidates.append(
                     ("smart_charging_max_price", PodPointSmartChargingMaxPriceNumber)
                 )
 
             for key, entity_type in candidates:
-                entity_key = (pod.ppid, key)
+                entity_key = (charger.ppid, key)
                 if entity_key not in known_entities:
                     known_entities.add(entity_key)
                     entities.append(entity_type(coordinator, entry, index))

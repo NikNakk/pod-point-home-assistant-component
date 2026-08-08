@@ -38,9 +38,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Registering SERVICE_CHARGE_NOW for Pod Point integration")
 
         async def async_charge_now_service(call: ServiceCall):
-            coordinator, pod = get_service_target(hass, call)
+            coordinator, charger = get_service_target(hass, call)
             try:
-                await handle_charge_now(coordinator, call, pod)
+                await handle_charge_now(coordinator, call, charger)
             except RequestValidationError as err:
                 raise PodPointServiceException(str(err)) from err
             except APIError as err:
@@ -74,9 +74,9 @@ async def async_register_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Registering SERVICE_STOP_CHARGE_NOW for Pod Point integration")
 
         async def async_stop_charge_now_service(call: ServiceCall):
-            coordinator, pod = get_service_target(hass, call)
+            coordinator, charger = get_service_target(hass, call)
             try:
-                await handle_stop_charge_now(coordinator, pod)
+                await handle_stop_charge_now(coordinator, charger)
             except RequestValidationError as err:
                 raise PodPointServiceException(str(err)) from err
             except APIError as err:

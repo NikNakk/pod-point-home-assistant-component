@@ -48,7 +48,8 @@ class PodPointEntity(CoordinatorEntity):
         idx: int,
     ):
         super().__init__(coordinator)
-        self._charger_ppid = coordinator.data[idx].ppid
+        self._charger = coordinator.data[idx]
+        self._charger_ppid = self._charger.ppid
         self.config_entry = config_entry
         self.extra_attrs = {}
 
@@ -112,23 +113,23 @@ class PodPointEntity(CoordinatorEntity):
         if should_be_connected_waiting_state:
             state = ATTR_STATE_CONNECTED_WAITING
 
-        # Pod should be available if pod is available and state is overriden, or manual charge mode
+        # A charger in override or manual mode should remain available.
         if should_be_available:
             state = ATTR_STATE_AVAILABLE
 
-        # Pod should be charging if pod is charging and state is overriden, or manual charge mode
+        # A charger in override or manual mode should remain charging.
         if should_be_charging:
             state = ATTR_STATE_CHARGING
 
-        # Pod should be suspended evse if pod is charging and connectivity status is suspended evse
+        # Preserve suspended EVSE connectivity state.
         if should_be_suspended_evse:
             state = ATTR_STATE_SUSPENDED_EVSE
 
-        # Pod should be suspended ev if pod is charging and connectivity status is suspended ev
+        # Preserve suspended EV connectivity state.
         if should_be_suspended_ev:
             state = ATTR_STATE_SUSPENDED_EV
 
-        # Should this pod be pending?
+        # Show a pending request until a newer charger message arrives.
         if should_be_pending:
             state = ATTR_STATE_PENDING
 
@@ -148,15 +149,18 @@ class PodPointEntity(CoordinatorEntity):
     def charger(self) -> ChargerRef:
         """Return the canonical charger that drives this entity."""
         return next(
-            charger
-            for charger in self.coordinator.data
-            if charger.ppid == self._charger_ppid
+            (
+                charger
+                for charger in self.coordinator.data
+                if charger.ppid == self._charger_ppid
+            ),
+            self._charger,
         )
 
     @property
     def metrics(self):
         """Return mutable charge aggregates for this charger."""
-        return self.coordinator.metrics.setdefault(self.charger.ppid, ChargerMetrics())
+        return self.coordinator.metrics.get(self.charger.ppid, ChargerMetrics())
 
     @property
     def last_message_at(self) -> datetime | None:
@@ -308,12 +312,12 @@ class PodPointEntity(CoordinatorEntity):
 
     @property
     def model(self) -> str:
-        """Return the model of our podpoint"""
+        """Return the charger model."""
         return self.charger.model_name or NAME
 
     @property
     def firmware_version(self) -> str:
-        """Return the pod's firmware version"""
+        """Return the charger's firmware version."""
         firmware = self.coordinator.firmware.get(self.charger.ppid)
         if firmware is not None and firmware.version_info is not None:
             return firmware.version_info.manifest_id
@@ -334,7 +338,7 @@ class PodPointEntity(CoordinatorEntity):
 
     @property
     def connected(self) -> bool:
-        """Returns true if pod is connected to a vehicle"""
+        """Return whether the charger is connected to a vehicle."""
         status = self.extra_state_attributes.get(ATTR_STATE, "")
         return status in (
             CHARGING_FLAG,

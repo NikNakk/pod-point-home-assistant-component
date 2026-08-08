@@ -69,7 +69,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
 
     def _add_new_entities() -> None:
         sensors = []
-        for index, pod in enumerate(coordinator.data):
+        for index, charger in enumerate(coordinator.data):
             candidates = [
                 ("status", PodPointSensor),
                 ("charge_time", PodPointChargeTimeSensor),
@@ -81,7 +81,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 ("charge_mode", PodPointChargeModeEntity),
                 ("charge_override", PodPointChargeOverrideEntity),
             ]
-            charger_state = coordinator.charger_states.get(pod.ppid)
+            charger_state = coordinator.charger_states.get(charger.ppid)
             if (
                 charger_state is not None
                 and charger_state.signal_strength_dbm is not None
@@ -94,18 +94,18 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 candidates.append(
                     ("connection_quality", PodPointConnectionQualitySensor)
                 )
-            if coordinator.tariffs.get(pod.ppid):
+            if coordinator.tariffs.get(charger.ppid):
                 candidates.append(("cheapest_tariff", PodPointCheapestTariffSensor))
-            if coordinator.smart_charging_preferences.get(pod.ppid) is not None:
+            if coordinator.smart_charging_preferences.get(charger.ppid) is not None:
                 candidates.append(
                     ("smart_max_price", PodPointSmartChargingMaxPriceSensor)
                 )
-            delegated = coordinator.delegated_vehicles.get(pod.ppid)
+            delegated = coordinator.delegated_vehicles.get(charger.ppid)
             if delegated is not None and delegated.vehicles:
                 candidates.append(("vehicle_battery", PodPointVehicleBatterySensor))
 
             for key, entity_type in candidates:
-                entity_key = (pod.ppid, key)
+                entity_key = (charger.ppid, key)
                 if entity_key not in known_entities:
                     known_entities.add(entity_key)
                     sensors.append(entity_type(coordinator, entry, index))
@@ -461,7 +461,7 @@ class PodPointCurrentEnergySensor(PodPointTotalEnergySensor):
     def available(self) -> bool:
         return (
             super().available
-            and self.coordinator.api.domain.account_capability(
+            and self.coordinator.api.account_capability(
                 AccountCapability.LEGACY_CHARGES
             )
             is not CapabilitySupport.UNSUPPORTED
@@ -539,15 +539,54 @@ class PodPointChargeOverrideEntity(
         return boost.ends_at if boost and boost.active and boost.timed else None
 
 
-class PodPointTotalCostSensor(
-    PodPointEntity,
-    SensorEntity,
-):
-    """pod_point total cost sensor class."""
+class PodPointCostSensor(PodPointEntity, SensorEntity):
+    """Base class for charge-cost sensors measured in minor currency units."""
 
-    _attr_has_entity_name = True
-    _attr_name = "Total Cost"
     _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_has_entity_name = True
+
+    @property
+    def currency(self) -> str:
+        """Return the charge currency, falling back to the configured currency."""
+        if currency := self.metrics.charge_currency:
+            return currency
+        return self.config_entry.options.get(CONF_CURRENCY, DEFAULT_CURRENCY)
+
+    @property
+    def cost_minor_units(self) -> float | None:
+        """Return the cost in the API's minor currency units."""
+        raise NotImplementedError
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        raw = self.cost_minor_units
+        if raw is None:
+            raw = 0
+        amount = raw / 100
+        currency = self.currency
+
+        return {
+            "raw": raw,
+            "amount": amount,
+            "currency": currency,
+            "formatted": f"{amount} {currency}",
+        }
+
+    @property
+    def native_value(self):
+        """Return the native value of the sensor."""
+        return self.extra_state_attributes["amount"]
+
+    @property
+    def native_unit_of_measurement(self):
+        """Return the unit for this sensor."""
+        return self.currency
+
+
+class PodPointTotalCostSensor(PodPointCostSensor):
+    """Total cost of completed charges."""
+
+    _attr_name = "Total Cost"
     _attr_icon = "mdi:cash-multiple"
 
     @property
@@ -555,51 +594,14 @@ class PodPointTotalCostSensor(
         return f"{super().unique_id}_total_cost"
 
     @property
-    def currency(self) -> str:
-        """Which currency type are we returning?"""
-
-        if currency := self.metrics.charge_currency:
-            return currency
-
-        # TODO - Should use the default currency from HA here
-        try:
-            currency = self.config_entry.options[CONF_CURRENCY]
-        except KeyError:
-            currency = DEFAULT_CURRENCY
-
-        return currency
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        cost_as_pounds = self.metrics.total_cost / 100
-
-        return {
-            "raw": self.metrics.total_cost,
-            "amount": cost_as_pounds,
-            "currency": self.currency,
-            "formatted": f"{cost_as_pounds} {self.currency}",
-        }
-
-    @property
-    def native_value(self):
-        """Return the native value of the sensor."""
-        return self.extra_state_attributes["amount"]
-
-    @property
-    def native_unit_of_measurement(self):
-        """Return the unit for this sensor."""
-        return self.extra_state_attributes["currency"]
+    def cost_minor_units(self) -> float:
+        return self.metrics.total_cost
 
 
-class PodPointLastCompleteChargeCostSensor(
-    PodPointEntity,
-    SensorEntity,
-):
+class PodPointLastCompleteChargeCostSensor(PodPointCostSensor):
     """pod_point cost of last complete charge sensor class."""
 
-    _attr_has_entity_name = True
     _attr_name = "Last Completed Charge Cost"
-    _attr_device_class = SensorDeviceClass.MONETARY
     _attr_icon = "mdi:cash"
 
     @property
@@ -607,44 +609,8 @@ class PodPointLastCompleteChargeCostSensor(
         return f"{super().unique_id}_last_complete_charge_cost"
 
     @property
-    def currency(self) -> str:
-        """Which currency type are we returning?"""
-
-        if currency := self.metrics.charge_currency:
-            return currency
-
-        try:
-            currency = self.config_entry.options[CONF_CURRENCY]
-        except KeyError:
-            currency = DEFAULT_CURRENCY
-
-        return currency
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        raw = 0
-        cost_as_pounds = 0.0
-
-        if self.metrics.last_charge_cost is not None:
-            raw = self.metrics.last_charge_cost
-            cost_as_pounds = raw / 100
-
-        return {
-            "raw": raw,
-            "amount": cost_as_pounds,
-            "currency": self.currency,
-            "formatted": f"{cost_as_pounds} {self.currency}",
-        }
-
-    @property
-    def native_value(self):
-        """Return the native value of the sensor."""
-        return self.extra_state_attributes["amount"]
-
-    @property
-    def native_unit_of_measurement(self):
-        """Return the unit for this sensor."""
-        return self.extra_state_attributes["currency"]
+    def cost_minor_units(self) -> float | None:
+        return self.metrics.last_charge_cost
 
 
 class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
@@ -692,7 +658,7 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
 
     @property
     def user(self) -> User:
-        """Return the underlying pod that drives this entity"""
+        """Return the account user that drives this entity."""
         user: User = self.coordinator.user
         return user
 

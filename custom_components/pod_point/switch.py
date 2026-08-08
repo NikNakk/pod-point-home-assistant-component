@@ -23,10 +23,10 @@ async def async_setup_entry(hass, entry, async_add_devices):
 
     def _add_new_entities() -> None:
         switches = []
-        for index, pod in enumerate(coordinator.data):
+        for index, charger in enumerate(coordinator.data):
             candidates = [("charge_now", PodPointChargeNowSwitch)]
             if (
-                pod.capability(ChargerCapability.BASIC_CHARGING_MODE)
+                charger.capability(ChargerCapability.BASIC_CHARGING_MODE)
                 is not CapabilitySupport.UNSUPPORTED
             ):
                 # Preserve the legacy smart-mode entity unique ID while moving its
@@ -36,7 +36,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 candidates.append(("charging_allowed", PodPointChargingAllowedSwitch))
 
             for key, entity_type in candidates:
-                entity_key = (pod.ppid, key)
+                entity_key = (charger.ppid, key)
                 if entity_key not in known_entities:
                     known_entities.add(entity_key)
                     switches.append(entity_type(coordinator, entry, index))
@@ -117,7 +117,7 @@ class PodPointChargingAllowedSwitch(PodPointEntity, SwitchEntity):
         """Block charging (turn on schedule). Unless an override or charge mode would prevent this functionality"""
         api: PodPointClient = self.coordinator.api
 
-        # Exit early if the pod cannot be switched off due to charge mode or override
+        # Exit early if the charger cannot be switched off due to its current mode.
         if self._override_to_on():
             return False
 

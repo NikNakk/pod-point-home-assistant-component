@@ -22,19 +22,19 @@ async def async_setup_entry(hass, entry, async_add_devices):
 
     def _async_add_new_entities() -> None:
         sensors = []
-        for index, pod in enumerate(coordinator.data):
+        for index, charger in enumerate(coordinator.data):
             candidates = [
                 ("cable", PodPointCableConnectionSensor),
                 ("cloud", PodPointCloudConnectionSensor),
             ]
-            remote_lock = coordinator.remote_locks.get(pod.ppid)
+            remote_lock = coordinator.remote_locks.get(charger.ppid)
             if remote_lock is not None and remote_lock.off_mode is not None:
                 candidates.append(("off_mode", PodPointRemoteLockSensor))
-            if coordinator.smart_charging_states.get(pod.ppid) is not None:
+            if coordinator.smart_charging_states.get(charger.ppid) is not None:
                 candidates.append(("smart_charging", PodPointSmartChargingSensor))
 
             for key, entity_type in candidates:
-                entity_key = (pod.ppid, key)
+                entity_key = (charger.ppid, key)
                 if entity_key not in known_entities:
                     known_entities.add(entity_key)
                     sensors.append(entity_type(coordinator, entry, index))

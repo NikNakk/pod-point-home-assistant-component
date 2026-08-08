@@ -157,6 +157,7 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
             # Discovery and Home-to-legacy fallback are owned by podpointclient.
             previous_charger_count = len(self.data or [])
             charger_refs = await self.api.async_discover_chargers()
+            self.__prune_removed_chargers(charger_refs)
             for charger in charger_refs:
                 self.metrics.setdefault(charger.ppid, ChargerMetrics())
 
@@ -426,6 +427,32 @@ If this issue persists, please contact the developer."
         """Return whether a time-based cache is due for refresh."""
         return last_refresh is None or now - last_refresh >= interval
 
+    def __prune_removed_chargers(self, chargers: list[ChargerRef]) -> None:
+        """Remove cached data belonging to chargers no longer discovered."""
+        active_ppids = {charger.ppid for charger in chargers}
+        caches = (
+            self.charger_states,
+            self.firmware,
+            self.metrics,
+            self.tariffs,
+            self.boost_states,
+            self.charge_now_durations,
+            self.smart_charging_preferences,
+            self.remote_locks,
+            self.delegated_vehicles,
+            self.basic_charging_modes,
+            self.smart_charging_states,
+            self.legacy_schedules,
+            self.completed_sessions,
+            self.live_sessions,
+            self.pending_sessions,
+            self._charger_live_states,
+            self.pending_request_at,
+        )
+        for cache in caches:
+            for ppid in cache.keys() - active_ppids:
+                cache.pop(ppid, None)
+
     @staticmethod
     def __api_error_status(exception: APIError) -> int | None:
         """Return the structured HTTP status supplied by podpointclient."""
@@ -522,25 +549,32 @@ If this issue persists, please contact the developer."
                     f"legacy schedules for {ppid}",
                 ),
             )
-            if state is not None:
+            if state is None:
+                self.charger_states.pop(ppid, None)
+            else:
                 self.charger_states[ppid] = state
             self.boost_states[ppid] = boost
-            self.basic_charging_modes[ppid] = (
-                None
-                if boost is None
-                else (
-                    BasicChargingMode.TIMED_BOOST
-                    if boost.active and boost.timed
-                    else (
-                        BasicChargingMode.ALWAYS_ON
-                        if boost.active
-                        else BasicChargingMode.SCHEDULED
-                    )
+            basic_mode = (
+                await self.__async_domain_optional(
+                    lambda charger=charger, boost=boost: (
+                        self.api.async_get_basic_charging_mode(
+                            charger, boost_state=boost
+                        )
+                    ),
+                    None,
+                    f"basic charging mode for {ppid}",
                 )
+                if boost is not None
+                else None
             )
-            if smart_charging is not None:
+            self.basic_charging_modes[ppid] = basic_mode
+            if smart_charging is None:
+                self.smart_charging_states.pop(ppid, None)
+            else:
                 self.smart_charging_states[ppid] = smart_charging
-            if legacy_schedules is not None:
+            if legacy_schedules is None:
+                self.legacy_schedules.pop(ppid, None)
+            else:
                 self.legacy_schedules[ppid] = legacy_schedules
 
             slow_updates = []

@@ -26,22 +26,22 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     def _add_new_entities() -> None:
         entities = []
-        for index, pod in enumerate(coordinator.data):
+        for index, charger in enumerate(coordinator.data):
             candidates = []
             if (
-                pod.capability(ChargerCapability.BASIC_CHARGING_MODE)
+                charger.capability(ChargerCapability.BASIC_CHARGING_MODE)
                 is not CapabilitySupport.UNSUPPORTED
             ):
                 candidates.append(("basic_mode", PodPointBasicChargingModeSelect))
             if coordinator.smart_charging_preferences.get(
-                pod.ppid
-            ) is not None and _tariff_prices(coordinator, pod.ppid):
+                charger.ppid
+            ) is not None and _tariff_prices(coordinator, charger.ppid):
                 candidates.append(
                     ("smart_priority", PodPointSmartChargingPrioritySelect)
                 )
 
             for key, entity_type in candidates:
-                entity_key = (pod.ppid, key)
+                entity_key = (charger.ppid, key)
                 if entity_key not in known_entities:
                     known_entities.add(entity_key)
                     entities.append(entity_type(coordinator, entry, index))

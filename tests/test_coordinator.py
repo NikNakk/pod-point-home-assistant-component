@@ -116,6 +116,8 @@ async def subject_with_data_offline(hass) -> PodPointDataUpdateCoordinator:
 async def test_coordinator_refresh(hass, bypass_get_data):
     """Test entry setup and unload."""
     coordinator: PodPointDataUpdateCoordinator = await subject(hass)
+    get_basic_mode = coordinator.api.async_get_basic_charging_mode
+    coordinator.api.async_get_basic_charging_mode = AsyncMock(wraps=get_basic_mode)
     assert coordinator.online is None
 
     coordinator.online = False
@@ -143,6 +145,9 @@ async def test_coordinator_refresh(hass, bypass_get_data):
     assert coordinator.smart_charging_states[charger.ppid].status == "INACTIVE"
     assert coordinator.boost_states[charger.ppid].active is False
     assert coordinator.basic_charging_modes[charger.ppid] is BasicChargingMode.SCHEDULED
+    coordinator.api.async_get_basic_charging_mode.assert_awaited_once_with(
+        charger, boost_state=coordinator.boost_states[charger.ppid]
+    )
     assert len(coordinator.live_sessions[charger.ppid]) == 1
     assert len(coordinator.completed_sessions[charger.ppid]) == 8
     assert coordinator.metrics[charger.ppid].current_kwh == 3.2
@@ -184,6 +189,7 @@ async def test_legacy_discovery_keeps_original_pod_without_synthetic_view(
         is ChargerSource.LEGACY
     )
     assert coordinator.boost_states[charger.ppid] is not None
+    coordinator.api.async_get_pod.assert_not_awaited()
 
 
 def reset_api_mocks(coordinator: PodPointDataUpdateCoordinator) -> None:
@@ -808,6 +814,9 @@ async def test_removed_home_connectivity_does_not_fall_back_to_legacy(
 ):
     """A Home capability removal is isolated from the legacy API."""
     coordinator = await subject(hass)
+    await coordinator.async_refresh()
+    assert "PSL-123456" in coordinator.charger_states
+
     coordinator.api.async_get_connectivity_status_v2 = AsyncMock(
         side_effect=APIError(410, "response omitted")
     )
@@ -816,6 +825,31 @@ async def test_removed_home_connectivity_does_not_fall_back_to_legacy(
 
     coordinator.api.async_get_connectivity_status.assert_not_awaited()
     assert "PSL-123456" not in coordinator.charger_states
+
+
+@pytest.mark.asyncio
+async def test_removed_charger_prunes_per_charger_caches(hass, bypass_get_data):
+    """Rediscovery removes runtime data for chargers no longer on the account."""
+    coordinator = await subject(hass)
+    await coordinator.async_refresh()
+    ppid = coordinator.data[0].ppid
+    coordinator.pending_request_at[ppid] = datetime.now(UTC)
+    coordinator.api.async_get_chargers.return_value = []
+
+    await coordinator.async_refresh()
+
+    assert coordinator.data == []
+    for cache in (
+        coordinator.charger_states,
+        coordinator.metrics,
+        coordinator.boost_states,
+        coordinator.basic_charging_modes,
+        coordinator.smart_charging_states,
+        coordinator.completed_sessions,
+        coordinator.live_sessions,
+        coordinator.pending_request_at,
+    ):
+        assert ppid not in cache
 
 
 @pytest.mark.asyncio
