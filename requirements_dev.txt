@@ -2,3 +2,4 @@ homeassistant
 pylint
 black
 isort
+ruff

@@ -12,7 +12,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 
@@ -29,15 +28,25 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     """Setup update platform."""
-    coordinator: PodPointDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    # Handle coordinator offline on boot - no data will be populated
-    if coordinator.online is False:
-        return
+    coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
+    known_pods: set[str] = set()
 
-    for i in range(len(coordinator.data)):
-        async_add_entities(
-            [PodUpdateEntity(coordinator, UPDATE_ENTITY_TYPES, entry, i)]
-        )
+    def _add_new_entities() -> None:
+        entities = []
+        for index, charger in enumerate(coordinator.data):
+            if (
+                charger.ppid not in known_pods
+                and coordinator.firmware.get(charger.ppid) is not None
+            ):
+                known_pods.add(charger.ppid)
+                entities.append(
+                    PodUpdateEntity(coordinator, UPDATE_ENTITY_TYPES, entry, index)
+                )
+        if entities:
+            async_add_entities(entities)
+
+    _add_new_entities()
+    entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
 
 
 class PodUpdateEntity(PodPointEntity, UpdateEntity):
@@ -60,7 +69,6 @@ class PodUpdateEntity(PodPointEntity, UpdateEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, config_entry, idx)
         self.coordinator = coordinator
-        self.pod_id = idx
         self.config_entry = config_entry
         self.entity_description = description
 
@@ -71,27 +79,23 @@ class PodUpdateEntity(PodPointEntity, UpdateEntity):
     @property
     def installed_version(self) -> str | None:
         """Version installed and in use."""
-        return self.pod.firmware.firmware_version
+        return self.coordinator.firmware[self.charger.ppid].firmware_version
 
     @property
     def latest_version(self) -> str | None:
         """Latest version available for install."""
         return (
-            f"{self.pod.firmware.firmware_version}_UPDATE_AVAILABLE"
-            if self.pod.firmware.update_available
+            f"{self.installed_version}_UPDATE_AVAILABLE"
+            if self.coordinator.firmware[self.charger.ppid].update_available
             else self.installed_version
         )
-
-    @property
-    def pod(self):
-        return self.coordinator.data[self.pod_id]
 
     def release_notes(self) -> str | None:
         """Return full release notes."""
         return (
-            f"A firmware update is available for {self.pod.ppid}."
+            f"A firmware update is available for {self.charger.ppid}."
             "\n\nExternal updating is not supported by the PodPoint APIs,"
             " please check the PodPoint mobile app for next steps."
-            if self.pod.firmware.update_available
-            else f"{self.pod.ppid} is up to date!"
+            if self.coordinator.firmware[self.charger.ppid].update_available
+            else f"{self.charger.ppid} is up to date!"
         )

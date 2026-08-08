@@ -6,50 +6,69 @@
 
 [![hacs][hacsbadge]][hacs]
 ![Project Maintenance][maintenance-shield]
-[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
-
 [![Community Forum][forum-shield]][forum]
 
-_Unofficial component to integrate with [Pod Point][pod_point_web] Solo/Solo 3 charging points._
+_Unofficial Home Assistant integration for [Pod Point][pod_point_web] Solo, Solo 3,
+and Solo 3S home chargers._
+
+This fork of [mattrayner's Pod Point integration][pod_point] uses the charger-centric
+**Pod Home API as its primary interface**. It follows the current Pod Home app for
+live charger state, boosts, tariffs, charging modes, delegated smart charging,
+remote off-mode, and rewards. The older Pod Point API is retained only as a
+limited compatibility fallback for accounts or chargers that are not yet
+available through the Home API.
 
 > **NOTE:** PodPoint have made changes to their authentication system in June 2023 which may result in existing connections reporting Invalid Credentials, and users being unable to log in again with their existing password. 
 > This can be fixed by going to https://charge.pod-point.com/login and reseting your password, and then re-authenticate with the integration.
 
-**This component will set up the following platforms and services.**
+## Features
 
-Platform | Description
--- | --
-`binary_sensor` | Shows if the pod is connected to a vehicle.
-`sensor` | Show info from Pod Point API.
-`sensor` (Total Energy) | Show a combined KWh value from all charges for a given pod.
-`sensor` (Current Charge Energy) | Show the KWh for the current charge session (or 0).
-`sensor` (*Total Cost) | Show the total cost of all ***completed* charges.
-`sensor` (Last ***Completed* Charge Cost) | Show the total cost of the last ***completed* charge.
-`sensor` (Completed charge time) | Show a combined 'charge time' value from all charges for a given pod.
-`sensor` (Balance) | Shows the balance on your PodPoint account.
-`sensor` (Charge Mode) | Shows the charge mode your pod is currently in/
-`sensor` (***Charge Override End Time) | Shows the end time for any configured 'charge now' override.
-`sensor` (Signal Strength) | Shows WiFi signal strength of a given pod.
-`sensor` (Last message received) | When was a message last received from a given pod.
-`sensor` (Cloud connection status) | Status of pods connection to the cloud.
-`switch` (****Allow Charging) | Enable/disable charging by enabling/disabling a schedule.
-`switch` (Smart Charge Mode) | Enable the switch for 'Smart' charge mode, disable it for 'Manual' charge mode.
-`update` (Firmware Update) | Shows the current firmware version for your device and alerts if an update is available
+The integration creates the following core entities:
 
-> ***Total cost is based on the energy provider and kWh cost set in Pod Point.**
+Platform | Entities
+--- | ---
+`binary_sensor` | Cable status and cloud connection
+`sensor` | Charger status, charge mode, boost end time, signal strength, last message, current and total energy, completed charge time, charge costs, and account balance
+`number` | Persistent duration used by the Charge now switch
+`switch` | Start or stop a timed Charge now boost
+`update` | Installed firmware and update availability
 
-> ****Charges are considered complete by Pod Point when you disconnect the vehicle, not when power delivery stops.**
+The Home API also provides these entities when the corresponding feature and data
+are available on the account:
 
-> *****Charge override end time will be 'Unknown' if there is no charge override ('charge now') set. Or, the time when the charge override ends.**
+Platform | Entities
+--- | ---
+`binary_sensor` | Pod Home smart charging and remote off-mode status
+`sensor` | Connection quality, cheapest tariff, smart-charging maximum price, delegated vehicle battery, and reward wallet balances and points
+`number` | Editable smart-charging maximum price
+`select` | Smart charging priority and basic charging mode (Scheduled or Always on)
+`switch` | Smart Charge Mode, backed by Pod Home delegated smart charging
 
-> ******When in either `Manual` or `Override` charge mode, the `Allow Charging` switch is inactive. This is because setting a schedule will not affect the charge in these modes.**
+Account balance and reward-wallet entities are grouped on a virtual **Pod Point
+Account** device. Reward entities are created only when the Home API returns a
+wallet for the account.
 
-Service | Params
----|---
-`charge_now` - Set a charge override for a time period | `account` - Pod Point account we're setting `charge_now` for.
-&nbsp; | `hours` (0-24) - How many hours should the charge override last for?
-&nbsp; | `minutes` (0-59) - How many minutes should the charge override last for?
-&nbsp; | `seconds` (0-59) - How many seconds should the charge override last for?
+> Charge cost entities use the energy price configured in Pod Point. Pod Point
+> considers a charge complete when the vehicle is disconnected, not when power
+> delivery stops.
+
+### Services
+
+Service | Description | Parameters
+--- | --- | ---
+`pod_point.charge_now` | Start a timed charger boost | `device_id` or `config_entry_id`, plus at least one of `hours` (0–24), `minutes` (0–59), or `seconds` (0–59)
+`pod_point.stop_charge_now` | Stop the active charger boost | `device_id` or `config_entry_id`
+
+These services create and remove Pod Home charger boosts. They use the legacy
+charge-override endpoint only for a charger that is unavailable through the Home
+API. Accounts with more than one charger are not currently supported by these
+services unless `device_id` is supplied. For backwards compatibility,
+`config_entry_id` without a device continues to select the charger when the
+account contains exactly one Pod.
+
+The Charge now switch uses the value of the device's Charge now duration number.
+That value is a persistent preset: changing it during an active boost affects the
+next boost and does not alter the current boost.
 
 ![example][exampleimg]
 ![example][chargetimeimg]
@@ -139,6 +158,38 @@ If you want to add Pod Point stats to the built in energy dashboard, you should 
 
 > *Note:* The Pod Point APIs perform some rounding on the kWh values returned meaning they may be sightly lower than the true energy consumed. We are unable to address this within the component.
 
+## Pod Home API behavior
+
+Existing charger entities retain their unique IDs when moving from the legacy API
+to the Home API. This avoids creating duplicate entities during migration.
+
+The Smart charging priority selector mirrors the app. “Prioritise a complete
+charge” sets the preference to the highest configured tariff-period price, while
+“Prioritise lowest cost” sets it to the lowest price. The priority selector and
+maximum-price entities are unavailable while the charger is in basic mode.
+
+The Basic charging mode selector is available only while delegated smart charging
+is inactive. An open-ended charger override is shown as Always on, no active
+override is Scheduled, and a timed boost leaves the selector unavailable rather
+than misrepresenting the current mode.
+
+Manual schedules are fetched into coordinator data but are not exposed as dozens
+of per-day entities. A future integration action accepting and validating one
+complete seven-day schedule is the cleanest Home Assistant interface because the
+Pod Home API replaces all seven entries atomically, including overnight periods.
+
+### Legacy API compatibility
+
+The legacy Pod Point API is no longer the integration's main interface. It is used
+on a best-effort basis only when a charger is not returned by the Home API. Such
+chargers receive the older **Charging Allowed** schedule switch instead of the Pod
+Home smart-charging controls, and do not receive Home-only tariff, reward,
+delegated-vehicle, remote off-mode, or smart-charging preference entities.
+
+Legacy compatibility is maintained to avoid abruptly dropping older chargers,
+but new features are developed against the Home API and equivalent behavior is
+not guaranteed for the fallback path.
+
 ## Cost sensors
 
 In order to provide the `Total Cost` and `Last Completed Charge Cost` sensors, we are using `energy_cost` values provided from Pod Point per ***completed* charge. There are some caveats to bare in mind here:
@@ -187,10 +238,12 @@ entities:
     name: Charge Override Time Ends
   - entity: binary_sensor.psl_xxxxxx_cable_status
     name: Cable Status
-  - entity: switch.psl_xxxxxx_charging_allowed
-    name: Charging Allowed
   - entity: switch.psl_xxxxxx_smart_charge_mode
     name: Smart Charge Mode
+  - entity: select.psl_xxxxxx_basic_charging_mode
+    name: Basic Charging Mode
+  - entity: select.psl_xxxxxx_smart_charging_priority
+    name: Smart Charging Priority
   - entity: sensor.psl_xxxxxx_current_energy
     name: Current Energy
   - entity: sensor.psl_xxxxxx_total_energy
@@ -247,23 +300,32 @@ Once you have setup the environment with all of the dependencies, try running th
 make test
 ```
 
+### Releases
+
+Release tags use Semantic Versioning with a leading `v`, for example `v3.0.0`,
+`v3.0.0-beta.1`, or `v3.0.0-rc.1`. Before tagging, set the same version (without
+the leading `v`) in both `custom_components/pod_point/manifest.json` and
+`custom_components/pod_point/version.py`.
+
+Pushing a matching tag runs the full CI suite and, if it passes, publishes a
+GitHub release with generated release notes. Tags containing a prerelease suffix
+are published as GitHub prereleases.
+
 ***
 
 [pod_point_web]: https://pod-point.com
 [pod_point]: https://github.com/mattrayner/pod-point-home-assistant-component
-[buymecoffee]: https://www.buymeacoffee.com/mattrayner
-[buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
 [chargetimeimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/3c7ebf994caf8eb5814859edc724e418c3e5746a/charge_time.png
-[commits-shield]: https://img.shields.io/github/commit-activity/y/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[commits]: https://github.com/mattrayner/pod-point-home-assistant-component/commits/master
+[commits-shield]: https://img.shields.io/github/commit-activity/y/NikNakk/pod-point-home-assistant-component.svg?style=for-the-badge
+[commits]: https://github.com/NikNakk/pod-point-home-assistant-component/commits/podhome
 [hacs]: https://github.com/custom-components/hacs
 [hacsbadge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge
 [exampleimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/48fdfe237f68c22d4098e8904926f534fdd49819/example.png
 [whichpodimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/bdb27d901f2bee5a741abb712785521b96191395/which_pod.png
 [forum-shield]: https://img.shields.io/badge/community-forum-brightgreen.svg?style=for-the-badge
 [forum]: https://community.home-assistant.io/
-[license-shield]: https://img.shields.io/github/license/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[maintenance-shield]: https://img.shields.io/badge/maintainer-Matt%20Rayner-blue.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[releases]: https://github.com/mattrayner/pod-point-home-assistant-component/releases
+[license-shield]: https://img.shields.io/github/license/NikNakk/pod-point-home-assistant-component.svg?style=for-the-badge
+[maintenance-shield]: https://img.shields.io/badge/maintainer-Nick%20Kennedy-blue.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/v/release/niknakk/pod-point-home-assistant-component?include_prereleases
+[releases]: https://github.com/NikNakk/pod-point-home-assistant-component/releases
 [hacs-add-repo]: https://hacs.xyz/docs/faq/custom_repositories

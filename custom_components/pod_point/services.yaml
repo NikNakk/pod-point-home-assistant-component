@@ -6,10 +6,17 @@ charge_now:
   fields:
     config_entry_id:
       name: Pod Point Account
-      description: The account we will be setting a charge_now value for.
-      required: true
+      description: The account containing the charger. Required for legacy calls without a charger when the account contains exactly one charger.
+      required: false
       selector:
         config_entry:
+          integration: pod_point
+    device_id:
+      name: Charger
+      description: The charger to boost. May be omitted when the selected account contains exactly one charger.
+      required: false
+      selector:
+        device:
           integration: pod_point
     hours:
       name: Hour(s)
@@ -19,7 +26,7 @@ charge_now:
       selector:
         number:
           min: 0
-          max: 23
+          max: 24
     minutes:
       name: Minute(s)
       description: How many minutes would you like to enable 'Charge Now' for?
@@ -40,15 +47,22 @@ charge_now:
           max: 59
 
 stop_charge_now:
-    name: Stop Pod Point Pod 'Charge Now'
-    description: >-
-        Ends a pod's 'Charge Now' mode. Please allow 5 minutes for mode to change on the pod.
+  name: Stop Pod Point Pod 'Charge Now'
+  description: >-
+    Ends a pod's 'Charge Now' mode. Please allow 5 minutes for mode to change on the pod.
 
-    fields:
-      config_entry_id:
-        name: Pod Point Account
-        description: The account we will be stopping a charge_now value for.
-        required: true
-        selector:
-          config_entry:
-            integration: pod_point
+  fields:
+    config_entry_id:
+      name: Pod Point Account
+      description: The account containing the charger. Required for legacy calls without a charger when the account contains exactly one charger.
+      required: false
+      selector:
+        config_entry:
+          integration: pod_point
+    device_id:
+      name: Charger
+      description: The charger whose boost should stop. May be omitted when the selected account contains exactly one charger.
+      required: false
+      selector:
+        device:
+          integration: pod_point

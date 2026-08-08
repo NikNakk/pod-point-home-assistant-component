@@ -1,4 +1,1 @@
-podpointclient==1.6.1
-StrEnum>=0.4
-aiodiscover>=2.2.0
-scapy>=2.5
+podpointclient-niknakk==1.7.0b9

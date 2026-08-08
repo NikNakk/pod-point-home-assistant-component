@@ -1,16 +1,16 @@
-default_config:
+# Keep the development instance lightweight. Home Assistant's default_config
+# includes go2rtc, whose managed binary is only shipped in HA container images
+# and is not available in this generic Python devcontainer.
+frontend:
 
 logger:
   default: info
   logs:
     custom_components.pod_point: debug
     podpointclient: debug
-    discovery: debug
     dhcp: debug
 
 # If you need to debug uncomment the line below (doc: https://www.home-assistant.io/integrations/debugpy/)
-debugpy:
+# debugpy:
 
 dhcp:
-
-discovery:

@@ -1,17 +1,16 @@
 """Test pod_point config flow."""
 
-from types import MappingProxyType
 from unittest.mock import patch
 
+import pytest
 from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info import dhcp
-from homeassistant.core import HomeAssistant
-import pytest
+from podpointclient.errors import ApiConnectionError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point.const import (
-    BINARY_SENSOR,
     CONF_CURRENCY,
     CONF_HTTP_DEBUG,
     CONF_PASSWORD,
@@ -19,8 +18,6 @@ from custom_components.pod_point.const import (
     DOMAIN,
     PLATFORMS,
     SENSOR,
-    SWITCH,
-    UPDATE,
 )
 
 from .const import MOCK_CONFIG
@@ -28,7 +25,7 @@ from .const import MOCK_CONFIG
 DHCP_SERVICE_INFO = dhcp.DhcpServiceInfo(
     hostname="podpoint-245EBE000000",
     ip="192.168.1.200",
-    macaddress="245EBE000000",
+    macaddress="245ebe000000",
 )
 
 
@@ -38,12 +35,15 @@ DHCP_SERVICE_INFO = dhcp.DhcpServiceInfo(
 @pytest.fixture(autouse=True)
 def bypass_setup_fixture():
     """Prevent setup."""
-    with patch(
-        "custom_components.pod_point.async_setup",
-        return_value=True,
-    ), patch(
-        "custom_components.pod_point.async_setup_entry",
-        return_value=True,
+    with (
+        patch(
+            "custom_components.pod_point.async_setup",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.pod_point.async_setup_entry",
+            return_value=True,
+        ),
     ):
         yield
 
@@ -106,7 +106,7 @@ async def test_reauth_config_flow(hass, bypass_get_data):
     assert result_2["type"] == FlowResultType.FORM
     assert result_2["step_id"] == "user"
 
-    updated_config = MOCK_CONFIG
+    updated_config = dict(MOCK_CONFIG)
     updated_config[CONF_PASSWORD] = "NewH8x0rP455!"
 
     # If a user entered a new password, this would happen
@@ -114,12 +114,10 @@ async def test_reauth_config_flow(hass, bypass_get_data):
         result["flow_id"], user_input=updated_config
     )
 
-    # Check that the config flow is complete and a new entry is created with
-    # the input data
-    assert result_3["type"] == FlowResultType.CREATE_ENTRY
-    assert result_3["title"] == "test@example.com"
-    assert result_3["data"] == MOCK_CONFIG
-    assert result_3["result"]
+    # Check that the existing entry was updated and the flow aborted
+    assert result_3["type"] == FlowResultType.ABORT
+    assert result_3["reason"] == "reauth_successful"
+    assert entry.data == updated_config
 
 
 # In this case, we want to simulate a failure during the config flow.
@@ -142,6 +140,25 @@ async def test_failed_config_flow(hass, error_on_get_data):
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "auth"}
+
+
+@pytest.mark.asyncio
+async def test_config_flow_connection_error(hass):
+    """Test a transient API failure is not reported as invalid credentials."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+
+    with patch(
+        "podpointclient.client.PodPointClient.async_charger_credentials_verified",
+        side_effect=ApiConnectionError("connection failed"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input=MOCK_CONFIG
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"] == {"base": "cannot_connect"}
 
 
 # Our config flow also has an options flow, so we must test it as well.
@@ -171,17 +188,12 @@ async def test_options_flow(hass, bypass_get_data):
     assert result["title"] == "test@example.com"
 
     # Verify that the options were updated
-    assert entry.options == MappingProxyType(
-        {
-            BINARY_SENSOR: True,
-            SENSOR: False,
-            SWITCH: True,
-            UPDATE: True,
-            CONF_SCAN_INTERVAL: 300,
-            CONF_HTTP_DEBUG: False,
-            CONF_CURRENCY: "GBP",
-        }
-    )
+    assert dict(entry.options) == {
+        **{platform: platform != SENSOR for platform in PLATFORMS},
+        CONF_SCAN_INTERVAL: 300,
+        CONF_HTTP_DEBUG: False,
+        CONF_CURRENCY: "GBP",
+    }
 
 
 # Our config flow also has an DHCP flow, so we must test it as well.
@@ -215,7 +227,7 @@ async def test_dhcp_login_error(hass: HomeAssistant, bypass_get_data) -> None:
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "user"
     with patch(
-        "podpointclient.client.PodPointClient.async_credentials_verified",
+        "podpointclient.client.PodPointClient.async_charger_credentials_verified",
         return_value=False,
     ):
         result = await hass.config_entries.flow.async_configure(

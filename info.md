@@ -6,8 +6,6 @@
 
 [![hacs][hacsbadge]][hacs]
 ![Project Maintenance][maintenance-shield]
-[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
-
 [![Community Forum][forum-shield]][forum]
 
 _Unofficial component to integrate with [Pod Point][pod_point_web] Solo/Solo 3 charging points._
@@ -40,7 +38,8 @@ Platform | Description
 
 Service | Params
 ---|---
-`charge_now` - Set a charge override for a time period | `account` - Pod Point account we're setting `charge_now` for.
+`charge_now` - Set a charge override for a time period | `device_id` - Charger to boost. Optional for a single-Pod account.
+&nbsp; | `config_entry_id` - Pod Point account. Retained for backwards compatibility with single-Pod accounts.
 &nbsp; | `hours` (0-24) - How many hours should the charge override last for?
 &nbsp; | `minutes` (0-59) - How many minutes should the charge override last for?
 &nbsp; | `seconds` (0-59) - How many seconds should the charge override last for?
@@ -183,19 +182,17 @@ If you want to contribute to this please read the [Contribution guidelines](CONT
 
 [pod_point_web]: https://pod-point.com
 [pod_point]: https://github.com/mattrayner/pod-point-home-assistant-component
-[buymecoffee]: https://www.buymeacoffee.com/mattrayner
-[buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
 [chargetimeimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/3c7ebf994caf8eb5814859edc724e418c3e5746a/charge_time.png
-[commits-shield]: https://img.shields.io/github/commit-activity/y/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[commits]: https://github.com/mattrayner/pod-point-home-assistant-component/commits/master
+[commits-shield]: https://img.shields.io/github/commit-activity/y/NikNakk/pod-point-home-assistant-component.svg?style=for-the-badge
+[commits]: https://github.com/NikNakk/pod-point-home-assistant-component/commits/podhome
 [hacs]: https://github.com/custom-components/hacs
 [hacsbadge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge
 [exampleimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/48fdfe237f68c22d4098e8904926f534fdd49819/example.png
 [whichpodimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/ef2c39788cdcd85d08a9adab1c06d74c51d38993/which_pod.png
 [forum-shield]: https://img.shields.io/badge/community-forum-brightgreen.svg?style=for-the-badge
 [forum]: https://community.home-assistant.io/
-[license-shield]: https://img.shields.io/github/license/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[maintenance-shield]: https://img.shields.io/badge/maintainer-Matt%20Rayner-blue.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[releases]: https://github.com/mattrayner/pod-point-home-assistant-component/releases
+[license-shield]: https://img.shields.io/github/license/NikNakk/pod-point-home-assistant-component.svg?style=for-the-badge
+[maintenance-shield]: https://img.shields.io/badge/maintainer-Nick%20Kennedy-blue.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/v/release/NikNakk/pod-point-home-assistant-component?include_prereleases
+[releases]: https://github.com/NikNakk/pod-point-home-assistant-component/releases
 [hacs-add-repo]: https://hacs.xyz/docs/faq/custom_repositories
