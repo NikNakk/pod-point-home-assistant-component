@@ -486,6 +486,13 @@ class PodPointCurrentEnergySensor(PodPointTotalEnergySensor):
         return self.pod.current_kwh
 
     @property
+    def available(self) -> bool:
+        return (
+            super().available
+            and self.coordinator._legacy_charges_supported is not False
+        )
+
+    @property
     def last_reset(self) -> datetime | None:
         active_charge = next(
             (charge for charge in self.pod.charges if charge.ends_at is None), None
@@ -529,6 +536,17 @@ class PodPointChargeModeEntity(
     @property
     def native_value(self):
         """Return the native value of the sensor."""
+        if self.pod.ppid in self.coordinator.chargers:
+            if self.smart_charging_active:
+                return ChargeMode.SMART
+            overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
+            if overrides is None:
+                return None
+            if any(override.end_at is not None for override in overrides):
+                return ChargeMode.OVERRIDE
+            if any(override.end_at is None for override in overrides):
+                return ChargeMode.MANUAL
+            return ChargeMode.SMART
         return self.pod.charge_mode
 
     @property
@@ -727,7 +745,8 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
     @property
     def native_unit_of_measurement(self):
         """Return the unit for this sensor."""
-        return self.user.account.currency
+        account = getattr(self.user, "account", None)
+        return getattr(account, "currency", None)
 
     def __update_attrs(self):
         if self.available is False:
@@ -752,12 +771,14 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
     @property
     def uuid(self) -> str:
         """Return the user uuid"""
-        return self.user.account.uid
+        account = getattr(self.user, "account", None)
+        return getattr(account, "uid", None)
 
     @property
     def balance(self) -> float:
         """Return a balance float"""
-        raw_balance = self.user.account.balance
+        account = getattr(self.user, "account", None)
+        raw_balance = getattr(account, "balance", None)
 
         if raw_balance is None or raw_balance <= 0:
             return 0.0
@@ -767,12 +788,15 @@ class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
     @property
     def unique_id(self):
         """Return a unique ID to use for this entity."""
-        return self.uuid
+        return f"{DOMAIN}_{self.config_entry.entry_id}_account_balance"
 
     @property
     def available(self) -> bool:
         typed_coordinator: PodPointDataUpdateCoordinator = self.coordinator
-        return typed_coordinator.online is True
+        return (
+            typed_coordinator.online is True
+            and getattr(typed_coordinator.user, "account", None) is not None
+        )
 
 
 class PodPointRewardBalanceSensor(CoordinatorEntity, SensorEntity):

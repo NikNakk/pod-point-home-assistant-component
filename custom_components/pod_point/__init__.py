@@ -8,10 +8,13 @@ https://github.com/mattrayner/pod-point-home-assistant-component
 from datetime import timedelta
 import logging
 from pathlib import Path
+import re
+
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.core_config import Config
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from podpointclient.client import PodPointClient
 
@@ -23,6 +26,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_HTTP_DEBUG,
     DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
     PLATFORMS,
     STARTUP_MESSAGE,
 )
@@ -32,6 +36,8 @@ from .services import async_register_services
 type PodPointConfigEntry = ConfigEntry[PodPointDataUpdateCoordinator]
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
+
+_LEGACY_CHARGER_UNIQUE_ID = re.compile(r"^pod_point_\d+_([^_]+)(.*)$")
 
 # pylint: disable=unused-argument
 
@@ -56,6 +62,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: PodPointConfigEntry):
 
     if entry.unique_id is None and email:
         hass.config_entries.async_update_entry(entry, unique_id=email.casefold())
+
+    _async_migrate_entity_unique_ids(hass, entry)
 
     session = async_get_clientsession(hass)
 
@@ -95,6 +103,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: PodPointConfigEntry):
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     return True
+
+
+def _async_migrate_entity_unique_ids(
+    hass: HomeAssistant, entry: PodPointConfigEntry
+) -> None:
+    """Move registry identities off legacy API IDs without changing entity IDs."""
+    registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+    for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        new_unique_id = None
+        match = _LEGACY_CHARGER_UNIQUE_ID.fullmatch(registry_entry.unique_id)
+        if match:
+            ppid, suffix = match.groups()
+            new_unique_id = f"{DOMAIN}_{ppid}{suffix}"
+            if registry_entry.device_id is not None:
+                device = device_registry.async_get(registry_entry.device_id)
+                if device is not None and (DOMAIN, ppid) not in device.identifiers:
+                    device_registry.async_update_device(
+                        device.id,
+                        new_identifiers={*device.identifiers, (DOMAIN, ppid)},
+                    )
+        elif (
+            getattr(registry_entry, "translation_key", None) == "account_balance"
+            or registry_entry.original_name == "Pod Point Balance"
+        ):
+            new_unique_id = f"{DOMAIN}_{entry.entry_id}_account_balance"
+
+        if new_unique_id is None or new_unique_id == registry_entry.unique_id:
+            continue
+        if registry.async_get_entity_id(
+            registry_entry.domain, registry_entry.platform, new_unique_id
+        ):
+            _LOGGER.warning(
+                "Unable to migrate %s because unique ID %s already exists",
+                registry_entry.entity_id,
+                new_unique_id,
+            )
+            continue
+        registry.async_update_entity(
+            registry_entry.entity_id, new_unique_id=new_unique_id
+        )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: PodPointConfigEntry) -> bool:

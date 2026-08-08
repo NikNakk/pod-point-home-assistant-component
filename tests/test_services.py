@@ -91,7 +91,7 @@ async def test_charge_now_service_targets_device(hass, bypass_get_data):
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
 
-    device = dr.async_get(hass).async_get_device({(DOMAIN, "123456789")})
+    device = dr.async_get(hass).async_get_device({(DOMAIN, "PSL-123456")})
     assert device is not None
 
     with patch(

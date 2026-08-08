@@ -218,6 +218,10 @@ def error_get_data_fixture():
             return_value=user,
         ),
         patch(
+            "podpointclient.client.PodPointClient.async_get_chargers",
+            side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
+        ),
+        patch(
             "podpointclient.client.PodPointClient.async_credentials_verified",
             side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
         ),

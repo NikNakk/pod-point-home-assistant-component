@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from podpointclient.errors import ApiConnectionError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -84,6 +85,52 @@ async def test_cached_optional_data_preserves_entity_discovery(hass, bypass_get_
     assert any("reward_points" in unique_id for unique_id in after)
     get_preferences.assert_awaited_once()
     get_wallet.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_existing_registry_identity_is_migrated_in_place(hass, bypass_get_data):
+    """Legacy IDs move to PPID while entity/device registry IDs remain stable."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(DOMAIN, "123456789")},
+    )
+    registry = er.async_get(hass)
+    existing = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "pod_point_12234_PSL-123456_status",
+        suggested_object_id="pod_point_status",
+        config_entry=config_entry,
+        device_id=device.id,
+    )
+    account = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "1a756c9b-dfac-4c2a-ba13-9cdcc2399366",
+        suggested_object_id="pod_point_balance",
+        config_entry=config_entry,
+        original_name="Pod Point Balance",
+    )
+    original_entity_id = existing.entity_id
+    original_device_id = existing.device_id
+
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    migrated = registry.async_get(original_entity_id)
+    assert migrated is not None
+    assert migrated.unique_id == "pod_point_PSL-123456_status"
+    assert migrated.entity_id == original_entity_id
+    assert migrated.device_id == original_device_id
+    assert (DOMAIN, "PSL-123456") in device_registry.async_get(
+        original_device_id
+    ).identifiers
+    assert registry.async_get(account.entity_id).unique_id == (
+        "pod_point_test_account_balance"
+    )
 
 
 @pytest.mark.asyncio

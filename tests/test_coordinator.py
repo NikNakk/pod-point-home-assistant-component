@@ -3,7 +3,7 @@
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -220,7 +220,7 @@ async def test_ordinary_refresh_only_calls_fast_endpoints(hass, bypass_get_data)
 
     await coordinator.async_refresh()
 
-    coordinator.api.async_get_all_pods.assert_awaited_once()
+    coordinator.api.async_get_all_pods.assert_not_awaited()
     coordinator.api.async_get_chargers.assert_awaited_once()
     coordinator.api.async_get_connectivity_status_v2.assert_awaited_once()
     coordinator.api.async_get_charger_charge_overrides.assert_awaited_once()
@@ -245,7 +245,7 @@ async def test_ordinary_refresh_only_calls_fast_endpoints(hass, bypass_get_data)
                 "async_get_charges",
             )
         )
-        == 6
+        == 5
     )
     assert coordinator.user is cached_user
     assert coordinator.smart_charging_preferences == cached_preferences
@@ -706,6 +706,58 @@ async def test_unsupported_fast_endpoint_is_negatively_cached(hass, bypass_get_d
 
 
 @pytest.mark.asyncio
+async def test_home_charger_does_not_use_legacy_pod_or_connectivity(
+    hass, bypass_get_data
+):
+    """Home charger discovery and connectivity do not depend on legacy reads."""
+    coordinator = await subject(hass)
+
+    await coordinator.async_refresh()
+
+    coordinator.api.async_get_all_pods.assert_not_awaited()
+    coordinator.api.async_get_connectivity_status.assert_not_awaited()
+    assert coordinator.pods[0].ppid == "PSL-123456"
+    assert coordinator.pods[0].unit_id == 123456
+
+
+@pytest.mark.asyncio
+async def test_removed_legacy_account_and_live_history_do_not_fail_home_charger(
+    hass, bypass_get_data
+):
+    """Confirmed removal only disables the legacy-derived capabilities."""
+    coordinator = await subject(hass)
+    coordinator.api.async_get_user = AsyncMock(
+        side_effect=APIError(410, "response omitted")
+    )
+    coordinator.api.async_get_charges = AsyncMock(
+        side_effect=APIError(410, "response omitted")
+    )
+
+    pods = await coordinator._async_update_data()
+
+    assert [pod.ppid for pod in pods] == ["PSL-123456"]
+    assert coordinator.user is None
+    assert coordinator._legacy_charges_supported is False
+    assert coordinator._new_history_supported is True
+
+
+@pytest.mark.asyncio
+async def test_removed_home_connectivity_does_not_fall_back_to_legacy(
+    hass, bypass_get_data
+):
+    """A Home capability removal is isolated from the legacy API."""
+    coordinator = await subject(hass)
+    coordinator.api.async_get_connectivity_status_v2 = AsyncMock(
+        side_effect=APIError(410, "response omitted")
+    )
+
+    await coordinator.async_refresh()
+
+    coordinator.api.async_get_connectivity_status.assert_not_awaited()
+    assert coordinator.connectivity_v2["PSL-123456"] is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "error",
     [APIError(503, "response omitted"), ApiConnectionError("temporary")],
@@ -735,7 +787,7 @@ async def test_coordinator_refresh_connection_error(hass, error_on_get_data):
         username="test@example.com", password="password", session=session
     )
 
-    client.async_get_all_pods = MagicMock(
+    client.async_get_chargers = AsyncMock(
         side_effect=ApiConnectionError("CONNECTION_ERROR_MESSAGE")
     )
 
@@ -765,7 +817,7 @@ async def test_coordinator_refresh_auth_session_error(hass, error_on_get_data):
         username="test@example.com", password="password", session=session
     )
 
-    client.async_get_all_pods = MagicMock(
+    client.async_get_chargers = AsyncMock(
         side_effect=AuthError(401, "AUTH_ERROR_MESSAGE")
     )
 
@@ -781,7 +833,7 @@ async def test_coordinator_refresh_auth_session_error(hass, error_on_get_data):
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
 
-    client.async_get_all_pods = MagicMock(
+    client.async_get_chargers = AsyncMock(
         side_effect=SessionError(401, "AUTH_ERROR_MESSAGE")
     )
 
@@ -808,7 +860,7 @@ async def test_coordinator_refresh_unexpected_exception(hass, error_on_get_data)
         username="test@example.com", password="password", session=session
     )
 
-    client.async_get_all_pods = MagicMock(
+    client.async_get_chargers = AsyncMock(
         side_effect=KeyError("CONNECTION_ERROR_MESSAGE")
     )
 

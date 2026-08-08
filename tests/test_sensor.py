@@ -103,7 +103,7 @@ async def test_status_pod_sensor(hass, bypass_get_data):
     status = sensors[0]
 
     assert SensorDeviceClass.ENUM == status.device_class
-    assert "pod_point_12234_PSL-123456_status" == status.unique_id
+    assert "pod_point_PSL-123456_status" == status.unique_id
     assert "Status" == status.name
     assert "charging" == status.native_value
 
@@ -160,7 +160,7 @@ async def test_total_energy_pod_sensor(hass, bypass_get_data):
         "total_kwh_difference": 0.0,
     } == total_energy.extra_attrs
 
-    assert "pod_point_12234_PSL-123456_status_total_energy" == total_energy.unique_id
+    assert "pod_point_PSL-123456_status_total_energy" == total_energy.unique_id
 
     assert "Total Energy" == total_energy.name
 
@@ -186,7 +186,7 @@ async def test_current_energy_pod_sensor(hass, bypass_get_data):
     current_energy = sensors[3]
 
     assert (
-        "pod_point_12234_PSL-123456_status_total_energy_current_charge_energy"
+        "pod_point_PSL-123456_status_total_energy_current_charge_energy"
         == current_energy.unique_id
     )
 
@@ -211,7 +211,7 @@ async def test_total_charge_time_pod_sensor(hass, bypass_get_data):
 
     charge_time = sensors[1]
 
-    assert "pod_point_12234_PSL-123456_charge_time" == charge_time.unique_id
+    assert "pod_point_PSL-123456_charge_time" == charge_time.unique_id
 
     assert "Completed Charge Time" == charge_time.name
 
@@ -272,7 +272,7 @@ async def test_total_cost_pod_sensor(hass, bypass_get_data):
 
     total_cost = sensors[6]
 
-    assert "pod_point_12234_PSL-123456_total_cost" == total_cost.unique_id
+    assert "pod_point_PSL-123456_total_cost" == total_cost.unique_id
 
     assert "Total Cost" == total_cost.name
 
@@ -333,7 +333,7 @@ async def test_last_charge_cost_pod_sensor(hass, bypass_get_data):
     last_charge = sensors[7]
 
     assert (
-        "pod_point_12234_PSL-123456_last_complete_charge_cost" == last_charge.unique_id
+        "pod_point_PSL-123456_last_complete_charge_cost" == last_charge.unique_id
     )
 
     assert "Last Completed Charge Cost" == last_charge.name
@@ -375,7 +375,7 @@ async def test_balance_sensor(hass, bypass_get_data):
 
     balance = sensors[10]
 
-    assert "1a756c9b-dfac-4c2a-ba13-9cdcc2399366" == balance.unique_id
+    assert "pod_point_test_account_balance" == balance.unique_id
 
     assert "Pod Point Balance" == balance.name
 
@@ -398,7 +398,7 @@ async def test_charge_override_sensor(hass, bypass_get_data):
     override: PodPointChargeOverrideEntity
     override = sensors[9]
 
-    assert "pod_point_12234_PSL-123456_override_end_time" == override.unique_id
+    assert "pod_point_PSL-123456_override_end_time" == override.unique_id
 
     assert "Charge Override End Time" == override.name
 
@@ -428,7 +428,7 @@ async def test_charge_mode_sensor(hass, bypass_get_data):
 
     mode = sensors[8]
 
-    assert "pod_point_12234_PSL-123456_charge_mode" == mode.unique_id
+    assert "pod_point_PSL-123456_charge_mode" == mode.unique_id
 
     assert "Charge Mode" == mode.name
 
@@ -445,7 +445,7 @@ async def test_signal_strength_sensor(hass, bypass_get_data):
 
     signal_strength = sensors[4]
 
-    assert "pod_point_12234_PSL-123456_signal_strength" == signal_strength.unique_id
+    assert "pod_point_PSL-123456_signal_strength" == signal_strength.unique_id
 
     assert "Signal Strength" == signal_strength.name
 
@@ -467,7 +467,7 @@ async def test_last_message_sensor(hass, bypass_get_data):
 
     last_message = sensors[5]
 
-    assert "pod_point_12234_PSL-123456_last_message_at" == last_message.unique_id
+    assert "pod_point_PSL-123456_last_message_at" == last_message.unique_id
 
     assert "Last Message Received" == last_message.name
 

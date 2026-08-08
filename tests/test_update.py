@@ -38,7 +38,7 @@ async def test_update_sensor(hass, bypass_get_data):
 
     [update] = updates
 
-    assert "pod_point_12234_PSL-123456_update" == update.unique_id
+    assert "pod_point_PSL-123456_update" == update.unique_id
 
     assert "A30P-3.1.22-00001" == update.installed_version
     assert "A30P-3.1.22-00001" == update.latest_version

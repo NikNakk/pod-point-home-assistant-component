@@ -63,7 +63,7 @@ async def test_cloud_connection_sensor(hass, bypass_get_data):
 
     assert BinarySensorDeviceClass.CONNECTIVITY == status.device_class
     assert EntityCategory.DIAGNOSTIC == status.entity_category
-    assert "pod_point_12234_PSL-123456_cloud_connection" == status.unique_id
+    assert "pod_point_PSL-123456_cloud_connection" == status.unique_id
     assert "Cloud Connection" == status.name
 
     status.coordinator.connectivity_v2[status.pod.ppid] = SimpleNamespace(
@@ -97,7 +97,7 @@ async def test_cable_connection_sensor(hass, bypass_get_data):
     [status, _] = sensors
 
     assert BinarySensorDeviceClass.PLUG == status.device_class
-    assert "pod_point_12234_PSL-123456_cable_status" == status.unique_id
+    assert "pod_point_PSL-123456_cable_status" == status.unique_id
     assert "Cable Status" == status.name
 
     status.extra_attrs[ATTR_STATE] = "charging"

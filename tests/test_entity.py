@@ -39,7 +39,7 @@ async def test_pod_point_entity(hass, bypass_get_data):
     assert 0 == entity.pod_id
 
     assert type(entity.pod) is Pod
-    assert "pod_point_12234_PSL-123456" == entity.unique_id
+    assert "pod_point_PSL-123456" == entity.unique_id
     assert True is entity.available
 
     entity.coordinator.online = False
@@ -59,7 +59,7 @@ async def test_pod_point_entity(hass, bypass_get_data):
     entity.coordinator.data = [original_pod]
 
     assert {
-        "identifiers": {("pod_point", "123456789")},
+        "identifiers": {("pod_point", "PSL-123456")},
         "manufacturer": "Pod Point",
         "model": "S7-UC-03-ACA",
         "name": "PSL-123456",

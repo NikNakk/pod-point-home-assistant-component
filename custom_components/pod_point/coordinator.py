@@ -90,6 +90,8 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         self._legacy_full_history_loaded = False
         self._initial_new_history_loaded = False
         self._new_history_supported: bool | None = None
+        self._home_api_supported: bool | None = None
+        self._legacy_charges_supported: bool | None = None
         self.completed_charges: dict[str, dict[Any, Any]] = {}
         self.provisional_charges: dict[str, Charge] = {}
         self.pending_finalisations: dict[str, Charge] = {}
@@ -128,9 +130,21 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
             )
 
             if hourly_refresh_due:
-                self.user = await self.api.async_get_user(includes=["account"])
+                self.user = await self.__async_optional(
+                    lambda: self.api.async_get_user(includes=["account"]),
+                    None,
+                    "legacy user account",
+                    now,
+                )
 
-            new_pods = await self.__async_update_pods()
+            # The charger-centric API is now the source of charger discovery. A
+            # legacy Pod-shaped adapter is retained internally because it keeps
+            # the platform code and service contract backwards compatible.
+            await self.__async_update_chargers(now)
+            if self._home_api_supported:
+                new_pods = self.__pods_from_chargers()
+            else:
+                new_pods = await self.__async_update_pods()
 
             # Load Pod Home data before deriving entity state. Optional endpoints
             # are deliberately isolated: not every account has Rewards, a tariff,
@@ -156,9 +170,10 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
             # they were performed on
             new_pods_by_id = self.__group_pods_by_unit_id(pods=new_pods)
 
-            new_pods, new_pods_by_id = await self.__async_group_pods(
-                new_pods, new_pods_by_id
-            )
+            if not self._home_api_supported:
+                new_pods, new_pods_by_id = await self.__async_group_pods(
+                    new_pods, new_pods_by_id
+                )
 
             new_pods_by_id = self.__group_pods_by_unit_id(pods=new_pods)
 
@@ -227,8 +242,11 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
                 and not self._legacy_full_history_loaded
             )
             should_refresh_legacy_charges = (
-                not self._initial_charge_history_loaded
-                or should_fetch_all_charges
+                (
+                    not self._home_api_supported
+                    and not self._initial_charge_history_loaded
+                )
+                or (not self._home_api_supported and should_fetch_all_charges)
                 or any_charger_live
                 or bool(became_idle_ppids)
                 or legacy_full_history_required
@@ -240,9 +258,19 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
                 fetch_all_legacy_charges = legacy_full_history_required or (
                     should_fetch_all_charges and self._new_history_supported is not True
                 )
-                new_charges = await self.__fetch_home_charges(
-                    all_charges=fetch_all_legacy_charges
+                optional_charges = await self.__async_optional(
+                    lambda: self.__fetch_home_charges(
+                        all_charges=fetch_all_legacy_charges
+                    ),
+                    None,
+                    "legacy live charge history",
+                    now,
                 )
+                if optional_charges is None:
+                    self._legacy_charges_supported = False
+                else:
+                    self._legacy_charges_supported = True
+                    new_charges = optional_charges
                 self._last_charge_refresh = now
                 self._initial_charge_history_loaded = True
                 if fetch_all_legacy_charges:
@@ -541,8 +569,9 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
             if completed:
                 newest = max(
                     completed,
-                    key=lambda charge: charge.ended_at
-                    or datetime.min.replace(tzinfo=UTC),
+                    key=lambda charge: (
+                        charge.ended_at or datetime.min.replace(tzinfo=UTC)
+                    ),
                 )
                 pod.last_charge_cost = newest.cost.amount
                 pod.charge_currency = newest.cost.currency
@@ -637,6 +666,75 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
         else:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
 
+    async def __async_update_chargers(self, now: float) -> None:
+        """Discover chargers without depending on the legacy Pod endpoint."""
+        if not hasattr(self.api, "async_get_chargers"):
+            self._home_api_supported = False
+            self.chargers = {}
+            return
+
+        chargers = await self.__async_optional(
+            self.api.async_get_chargers,
+            None,
+            "chargers",
+            now,
+        )
+        if chargers is None:
+            self._home_api_supported = False
+            self.chargers = {}
+            return
+
+        self._home_api_supported = True
+        self.chargers = {charger.ppid: charger for charger in chargers}
+
+    @staticmethod
+    def __charger_model_name(charger: Any) -> str:
+        """Return the best descriptive model supplied by the Home API."""
+        model_info = getattr(charger, "model_info", None)
+        if model_info is None:
+            return "Pod Point charger"
+        return next(
+            (
+                value
+                for value in (
+                    getattr(model_info, "style", None),
+                    getattr(model_info, "architecture", None),
+                )
+                if value
+            ),
+            "Pod Point charger",
+        )
+
+    def __pods_from_chargers(self) -> list[Pod]:
+        """Adapt Home chargers to the legacy in-component entity data shape."""
+        previous = {pod.ppid: pod for pod in self.pods}
+        pods = []
+        for charger in self.chargers.values():
+            linked_at = getattr(charger, "linked_at", None)
+            pod = Pod(
+                {
+                    "name": charger.ppid,
+                    "ppid": charger.ppid,
+                    "home": True,
+                    "commissioned_at": (
+                        linked_at.isoformat() if linked_at is not None else None
+                    ),
+                    "created_at": (
+                        linked_at.isoformat() if linked_at is not None else None
+                    ),
+                    "unit_id": charger.unit_id,
+                    "timezone": getattr(charger, "timezone", None),
+                    "model": {"name": self.__charger_model_name(charger)},
+                }
+            )
+            if old_pod := previous.get(charger.ppid):
+                # Keep data obtained from endpoints with slower refresh cadences.
+                pod.firmware = old_pod.firmware
+                pod.price = old_pod.price
+                pod.unit_connectors = old_pod.unit_connectors
+            pods.append(pod)
+        return pods
+
     async def __async_update_pods(self) -> list[Pod]:
         # Should we get a limited set of data (subsiquent refreshes)
         if len(self.pods) > 0:
@@ -672,8 +770,15 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
         _LOGGER.debug("=== FIRMWARE STATUS UPDATE ===")
 
         for pod in new_pods:
-            pod_firmwares: list[Firmware] = await self.api.async_get_firmware(pod=pod)
+            pod_firmwares: list[Firmware] | None = await self.__async_optional(
+                lambda pod=pod: self.api.async_get_firmware(pod=pod),
+                None,
+                f"firmware for {pod.ppid}",
+                monotonic(),
+            )
 
+            if pod_firmwares is None:
+                continue
             if len(pod_firmwares) <= 0:
                 _LOGGER.warning(
                     "Unable to retrive firmware information for Pod %s",
@@ -708,8 +813,12 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
                 new_pods_by_id[pod.unit_id] = pod
                 continue
 
-            # Retain the legacy endpoint as a fallback for chargers which have
-            # not yet been migrated to the Pod Home API.
+            # Legacy connectivity is only relevant to chargers for which charger
+            # discovery itself is unavailable. A Home charger with an unsupported
+            # connectivity capability must not bring down unrelated entities.
+            if pod.ppid in self.chargers:
+                continue
+
             connectivity_status = await self.api.async_get_connectivity_status(pod=pod)
 
             if connectivity_status is not None:
@@ -744,7 +853,7 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
     async def __async_optional(
         self, awaitable_factory, default: Any, name: str, now: float
     ):
-        """Resolve an optional endpoint, caching only confirmed unsupported 404s."""
+        """Resolve an optional endpoint, caching confirmed endpoint removal."""
         if self._unsupported_until.get(name, 0) > now:
             return default
         try:
@@ -756,10 +865,13 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
         except ApiConnectionError:
             raise
         except APIError as exception:
-            if self.__api_error_status(exception) != 404:
+            status = self.__api_error_status(exception)
+            if status not in (404, 410):
                 raise
             self._unsupported_until[name] = now + self._unsupported_retry_interval
-            _LOGGER.debug("Pod Home endpoint %s is unsupported (HTTP 404)", name)
+            _LOGGER.debug(
+                "Pod Point endpoint %s is unsupported (HTTP %s)", name, status
+            )
             return default
 
     async def __async_update_pod_home_data(
@@ -770,12 +882,9 @@ expecting more charges. Page {page}, looking for : {last_charge_ids}"
         hourly_refresh_due: bool,
         remote_lock_refresh_due: bool,
     ) -> None:
-        """Fetch charger-centric Pod Home state and associate it with legacy pods."""
-        if not hasattr(self.api, "async_get_chargers"):
+        """Fetch charger-centric Pod Home state and associate it with local pods."""
+        if not self._home_api_supported:
             return
-
-        chargers = await self.api.async_get_chargers()
-        self.chargers = {charger.ppid: charger for charger in chargers}
 
         delegated = await self.__async_optional(
             self.api.async_get_delegated_vehicles,

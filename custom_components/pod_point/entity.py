@@ -155,10 +155,7 @@ class PodPointEntity(CoordinatorEntity):
     @property
     def unique_id(self):
         """Return a unique ID to use for this entity."""
-        if self.pod.id:
-            return f"{DOMAIN}_{self.pod.id}_{self.pod.ppid}"
-
-        return self.config_entry.entry_id
+        return f"{DOMAIN}_{self.pod.ppid}"
 
     @property
     def available(self) -> bool:
@@ -176,7 +173,7 @@ class PodPointEntity(CoordinatorEntity):
             name = self.psl
 
         dictionary = {
-            "identifiers": {(DOMAIN, self.serial_number)},
+            "identifiers": {(DOMAIN, self.pod.ppid)},
             "name": name,
             "model": self.model,
             "manufacturer": NAME,
@@ -196,6 +193,10 @@ class PodPointEntity(CoordinatorEntity):
     def charging_allowed(self) -> bool:
         """Is charging allowed by schedule?"""
         pod = self.pod
+        if pod.ppid in self.coordinator.chargers:
+            # Pod Home connectivity is authoritative. Legacy schedules are not
+            # available to, or used by, the current app.
+            return True
         schedules: list[Schedule] = pod.charge_schedules
         override: ChargeOverride = pod.charge_override
 
@@ -400,6 +401,8 @@ class PodPointEntity(CoordinatorEntity):
             return None
 
         model_slug = self.__model_slug()
+        if len(model_slug) < 2:
+            return None
         model_type = model_slug[0]
         model_id = model_slug[1]
 

@@ -159,10 +159,10 @@ def get_service_target(
             continue
         coordinator = entry.runtime_data
         for pod in coordinator.pods:
-            serial_number = pod.ppid
+            known_identifiers = {pod.ppid}
             if pod.firmware is not None and pod.firmware.serial_number:
-                serial_number = pod.firmware.serial_number
-            if serial_number in identifiers:
+                known_identifiers.add(pod.firmware.serial_number)
+            if known_identifiers & identifiers:
                 return coordinator, pod
 
     raise PodPointServiceException(
