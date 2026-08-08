@@ -7,7 +7,10 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point.const import DOMAIN
-from custom_components.pod_point.switch import PodPointChargeModeSwitch
+from custom_components.pod_point.switch import (
+    PodPointChargeModeSwitch,
+    PodPointChargeNowSwitch,
+)
 
 from .const import MOCK_CONFIG
 
@@ -61,3 +64,52 @@ async def test_failed_smart_switch_update_does_not_refresh(hass, bypass_get_data
     await entity.async_turn_on()
     coordinator.async_request_refresh.assert_not_awaited()
     assert entity.is_on is False
+
+
+@pytest.mark.asyncio
+async def test_charge_now_switch_state_and_modes(hass, bypass_get_data):
+    """Charge now works in smart and scheduled modes but not Always on."""
+    coordinator, mode_entity = await setup_smart_switch(hass)
+    entity = PodPointChargeNowSwitch(coordinator, mode_entity.config_entry, 0)
+    ppid = entity.pod.ppid
+
+    coordinator.delegated_controls[ppid] = SimpleNamespace(status="ACTIVE")
+    coordinator.charge_overrides[ppid] = []
+    assert entity.available is True
+    assert entity.is_on is False
+
+    coordinator.delegated_controls[ppid] = SimpleNamespace(status="INACTIVE")
+    assert entity.available is True
+
+    coordinator.charge_overrides[ppid] = [SimpleNamespace(end_at="timed")]
+    assert entity.available is True
+    assert entity.is_on is True
+
+    coordinator.charge_overrides[ppid] = [SimpleNamespace(end_at=None)]
+    assert entity.available is False
+    assert entity.is_on is False
+
+
+@pytest.mark.asyncio
+async def test_charge_now_switch_uses_duration_and_stops(hass, bypass_get_data):
+    """The switch snapshots the preset and controls its own charger."""
+    coordinator, mode_entity = await setup_smart_switch(hass)
+    entity = PodPointChargeNowSwitch(coordinator, mode_entity.config_entry, 0)
+    ppid = entity.pod.ppid
+    coordinator.charge_now_durations[ppid] = 125
+    coordinator.api.async_create_charger_charge_override = AsyncMock()
+    coordinator.api.async_delete_charger_charge_overrides = AsyncMock()
+    coordinator.async_request_refresh = AsyncMock()
+
+    coordinator.charge_overrides[ppid] = []
+    await entity.async_turn_on()
+    coordinator.api.async_create_charger_charge_override.assert_awaited_with(
+        charger=coordinator.chargers[ppid], hours=2, minutes=5, seconds=0
+    )
+
+    coordinator.charge_overrides[ppid] = [SimpleNamespace(end_at="timed")]
+    await entity.async_turn_off()
+    coordinator.api.async_delete_charger_charge_overrides.assert_awaited_with(
+        charger=coordinator.chargers[ppid]
+    )
+    assert coordinator.async_request_refresh.await_count == 2

@@ -31,6 +31,8 @@ Platform | Entities
 --- | ---
 `binary_sensor` | Cable status and cloud connection
 `sensor` | Charger status, charge mode, boost end time, signal strength, last message, current and total energy, completed charge time, charge costs, and account balance
+`number` | Persistent duration used by the Charge now switch
+`switch` | Start or stop a timed Charge now boost
 `update` | Installed firmware and update availability
 
 The Home API also provides these entities when the corresponding feature and data
@@ -56,13 +58,19 @@ wallet for the account.
 
 Service | Description | Parameters
 --- | --- | ---
-`pod_point.charge_now` | Start a timed charger boost | `config_entry_id`, plus at least one of `hours` (0–24), `minutes` (0–59), or `seconds` (0–59)
-`pod_point.stop_charge_now` | Stop the active charger boost | `config_entry_id`
+`pod_point.charge_now` | Start a timed charger boost | `device_id` or `config_entry_id`, plus at least one of `hours` (0–24), `minutes` (0–59), or `seconds` (0–59)
+`pod_point.stop_charge_now` | Stop the active charger boost | `device_id` or `config_entry_id`
 
 These services create and remove Pod Home charger boosts. They use the legacy
 charge-override endpoint only for a charger that is unavailable through the Home
 API. Accounts with more than one charger are not currently supported by these
-services.
+services unless `device_id` is supplied. For backwards compatibility,
+`config_entry_id` without a device continues to select the charger when the
+account contains exactly one Pod.
+
+The Charge now switch uses the value of the device's Charge now duration number.
+That value is a persistent preset: changing it during an active boost affects the
+next boost and does not alter the current boost.
 
 ![example][exampleimg]
 ![example][chargetimeimg]

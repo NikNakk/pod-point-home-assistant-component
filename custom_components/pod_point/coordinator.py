@@ -65,6 +65,7 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         self.tariffs: dict[str, list[Any]] = {}
         # None means the endpoint failed; [] means it succeeded with no overrides.
         self.charge_overrides: dict[str, list[Any] | None] = {}
+        self.charge_now_durations: dict[str, int] = {}
         self.delegated_controls: dict[str, Any] = {}
         self.manual_schedules: dict[str, list[Any] | None] = {}
         self.smart_charging_preferences: dict[str, Any] = {}

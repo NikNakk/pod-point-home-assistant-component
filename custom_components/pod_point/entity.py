@@ -1,7 +1,7 @@
 """PodPointEntity class"""
 
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -334,6 +334,35 @@ class PodPointEntity(CoordinatorEntity):
         """Return whether delegated smart charging is active for this charger."""
         control = self.coordinator.delegated_controls.get(self.pod.ppid)
         return control is not None and control.status == "ACTIVE"
+
+    @property
+    def timed_charge_override_active(self) -> bool:
+        """Return whether this charger has an active timed override."""
+        if self.pod.ppid in self.coordinator.chargers:
+            overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
+            return overrides is not None and any(
+                override.end_at is not None for override in overrides
+            )
+
+        override = self.pod.charge_override
+        return override is not None and override.active
+
+    @property
+    def charge_now_available(self) -> bool:
+        """Return whether a timed override is meaningful and observable."""
+        if self.pod.ppid in self.coordinator.chargers:
+            overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
+            if overrides is None:
+                return False
+            has_timed_override = any(
+                override.end_at is not None for override in overrides
+            )
+            has_open_ended_override = any(
+                override.end_at is None for override in overrides
+            )
+            return has_timed_override or not has_open_ended_override
+
+        return self.pod.charge_mode != ChargeMode.MANUAL
 
     @staticmethod
     def compare_state(state, pod_state) -> str:

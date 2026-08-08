@@ -37,7 +37,7 @@
                 "data": {
                     "binary_sensor": "Enable cable status sensors",
                     "sensor": "Enable status, energy, and cost sensors",
-                    "number": "Enable smart charging controls",
+                    "number": "Enable charge duration and smart charging controls",
                     "select": "Enable smart charging preferences",
                     "switch": "Enable charging switches",
                     "scan_interval": "Poll interval (seconds)",
@@ -79,6 +79,16 @@
         "update": {
             "firmware_update": {
                 "name": "Firmware update"
+            }
+        },
+        "number": {
+            "charge_now_duration": {
+                "name": "Charge now duration"
+            }
+        },
+        "switch": {
+            "charge_now": {
+                "name": "Charge now"
             }
         }
     }

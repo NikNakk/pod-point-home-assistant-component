@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import pytest
+from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point.const import DOMAIN, SERVICE_CHARGE_NOW
@@ -79,3 +80,49 @@ async def test_charge_now_service_with_data(hass, bypass_get_data):
                 {"config_entry_id": "test"},
                 blocking=True,
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.enable_socket
+async def test_charge_now_service_targets_device(hass, bypass_get_data):
+    """A device target identifies the charger without a config entry field."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    device = dr.async_get(hass).async_get_device({(DOMAIN, "123456789")})
+    assert device is not None
+
+    with patch(
+        "podpointclient.client.PodPointClient.async_create_charger_charge_override"
+    ) as create_override:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CHARGE_NOW,
+            {"device_id": device.id, "minutes": 30},
+            blocking=True,
+        )
+
+    assert create_override.call_args.kwargs["charger"].ppid == "PSL-123456"
+    assert create_override.call_args.kwargs["minutes"] == 30
+
+
+@pytest.mark.asyncio
+@pytest.mark.enable_socket
+async def test_legacy_service_requires_device_for_multiple_pods(hass, bypass_get_data):
+    """The account-only form remains unambiguous only for one Pod."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = config_entry.runtime_data
+    coordinator.pods.append(coordinator.pods[0])
+
+    with pytest.raises(PodPointServiceException, match="device_id is required"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CHARGE_NOW,
+            {"config_entry_id": "test", "minutes": 30},
+            blocking=True,
+        )

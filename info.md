@@ -40,7 +40,8 @@ Platform | Description
 
 Service | Params
 ---|---
-`charge_now` - Set a charge override for a time period | `account` - Pod Point account we're setting `charge_now` for.
+`charge_now` - Set a charge override for a time period | `device_id` - Charger to boost. Optional for a single-Pod account.
+&nbsp; | `config_entry_id` - Pod Point account. Retained for backwards compatibility with single-Pod accounts.
 &nbsp; | `hours` (0-24) - How many hours should the charge override last for?
 &nbsp; | `minutes` (0-59) - How many minutes should the charge override last for?
 &nbsp; | `seconds` (0-59) - How many seconds should the charge override last for?

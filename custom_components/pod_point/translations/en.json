@@ -37,7 +37,7 @@
                 "data": {
                     "binary_sensor": "Cable status sensor enabled.",
                     "sensor": "Pod status, energy and cost sensors enabled.",
-                    "number": "Smart charging controls enabled.",
+                    "number": "Charge duration and smart charging controls enabled.",
                     "select": "Smart charging preferences enabled.",
                     "switch": "Charging switch enabled.",
                     "scan_interval": "Poll interval (seconds)",
@@ -79,6 +79,16 @@
         "update": {
             "firmware_update": {
                 "name": "Firmware update"
+            }
+        },
+        "number": {
+            "charge_now_duration": {
+                "name": "Charge now duration"
+            }
+        },
+        "switch": {
+            "charge_now": {
+                "name": "Charge now"
             }
         }
     }

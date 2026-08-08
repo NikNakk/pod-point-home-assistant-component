@@ -1,15 +1,18 @@
 """Switch platform for pod_point."""
 
-from datetime import UTC, datetime
 import logging
+from datetime import UTC, datetime
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.exceptions import ServiceValidationError
 from podpointclient.charge_mode import ChargeMode
 from podpointclient.client import PodPointClient
+from podpointclient.errors import RequestValidationError
 
-from .const import SWITCH_ICON
+from .const import DEFAULT_CHARGE_NOW_DURATION, SWITCH_ICON
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
+from .services import async_start_charge_now, async_stop_charge_now
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -17,27 +20,78 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
     coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
-    known_pods: set[str] = set()
+    known_entities: set[tuple[str, str]] = set()
 
     def _add_new_entities() -> None:
         switches = []
         for index, pod in enumerate(coordinator.data):
-            if pod.ppid in known_pods:
-                continue
-            known_pods.add(pod.ppid)
+            candidates = [("charge_now", PodPointChargeNowSwitch)]
             if pod.ppid in coordinator.chargers:
                 # Preserve the legacy smart-mode entity unique ID while moving its
                 # implementation to the charger-centric delegated-control endpoint.
-                switches.append(PodPointChargeModeSwitch(coordinator, entry, index))
+                candidates.append(("charge_mode", PodPointChargeModeSwitch))
             else:
-                switches.append(
-                    PodPointChargingAllowedSwitch(coordinator, entry, index)
-                )
+                candidates.append(("charging_allowed", PodPointChargingAllowedSwitch))
+
+            for key, entity_type in candidates:
+                entity_key = (pod.ppid, key)
+                if entity_key not in known_entities:
+                    known_entities.add(entity_key)
+                    switches.append(entity_type(coordinator, entry, index))
         if switches:
             async_add_devices(switches)
 
     _add_new_entities()
     entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
+
+
+class PodPointChargeNowSwitch(PodPointEntity, SwitchEntity):
+    """Start or stop a timed charge override."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Charge now"
+    _attr_translation_key = "charge_now"
+    _attr_icon = "mdi:battery-charging"
+
+    @property
+    def unique_id(self):
+        return f"{super().unique_id}_charge_now"
+
+    @property
+    def is_on(self):
+        return self.timed_charge_override_active
+
+    @property
+    def available(self) -> bool:
+        return super().available and self.charge_now_available
+
+    async def async_turn_on(self, **kwargs):  # pylint: disable=unused-argument
+        """Start a timed override using the saved duration."""
+        if self.is_on:
+            return
+        duration = self.coordinator.charge_now_durations.get(
+            self.pod.ppid, DEFAULT_CHARGE_NOW_DURATION
+        )
+        hours, minutes = divmod(duration, 60)
+        try:
+            await self.coordinator.async_api_call(
+                async_start_charge_now(
+                    self.coordinator, self.pod, hours=hours, minutes=minutes
+                )
+            )
+        except RequestValidationError as err:
+            raise ServiceValidationError(str(err)) from err
+
+    async def async_turn_off(self, **kwargs):  # pylint: disable=unused-argument
+        """Stop the active timed override."""
+        if not self.is_on:
+            return
+        try:
+            await self.coordinator.async_api_call(
+                async_stop_charge_now(self.coordinator, self.pod)
+            )
+        except RequestValidationError as err:
+            raise ServiceValidationError(str(err)) from err
 
 
 class PodPointChargingAllowedSwitch(PodPointEntity, SwitchEntity):
