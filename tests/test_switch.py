@@ -29,10 +29,14 @@ async def setup_smart_switch(hass):
 async def test_smart_switch_state(hass, bypass_get_data):
     """ACTIVE is on and INACTIVE is off."""
     coordinator, entity = await setup_smart_switch(hass)
-    coordinator.delegated_controls[entity.pod.ppid] = SimpleNamespace(status="ACTIVE")
+    coordinator.chargers[entity.pod.ppid].delegated_control_status = "ACTIVE"
     assert entity.is_on is True
-    coordinator.delegated_controls[entity.pod.ppid] = SimpleNamespace(status="INACTIVE")
+    coordinator.chargers[entity.pod.ppid].delegated_control_status = "enabled"
+    assert entity.is_on is True
+    coordinator.chargers[entity.pod.ppid].delegated_control_status = "INACTIVE"
     assert entity.is_on is False
+    coordinator.chargers[entity.pod.ppid].delegated_control_status = None
+    assert entity.available is False
     assert entity.unique_id.endswith("_smart_charge_mode")
 
 
@@ -73,12 +77,12 @@ async def test_charge_now_switch_state_and_modes(hass, bypass_get_data):
     entity = PodPointChargeNowSwitch(coordinator, mode_entity.config_entry, 0)
     ppid = entity.pod.ppid
 
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="ACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "ACTIVE"
     coordinator.charge_overrides[ppid] = []
     assert entity.available is True
     assert entity.is_on is False
 
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="INACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "INACTIVE"
     assert entity.available is True
 
     coordinator.charge_overrides[ppid] = [SimpleNamespace(end_at="timed")]

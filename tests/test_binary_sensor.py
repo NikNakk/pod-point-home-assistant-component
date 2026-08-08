@@ -3,18 +3,19 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
 from homeassistant.helpers.entity import EntityCategory
 from podpointclient.connectivity_status import ConnectivityStatus
-import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point.binary_sensor import (
     PodPointCableConnectionSensor,
     PodPointCloudConnectionSensor,
+    PodPointSmartChargingSensor,
     async_setup_entry,
 )
 from custom_components.pod_point.const import ATTR_STATE, DOMAIN
@@ -48,7 +49,7 @@ async def setup_sensors(hass) -> tuple[MockConfigEntry, list[BinarySensorEntity]
 async def test_sensor_creation(hass, bypass_get_data):
     """Test that the expected number of sensors is created"""
 
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     assert 2 == len(sensors)
 
@@ -56,7 +57,7 @@ async def test_sensor_creation(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_cloud_connection_sensor(hass, bypass_get_data):
     """Tests for pod status sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     [_, status] = sensors
 
@@ -91,7 +92,7 @@ async def test_cloud_connection_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_cable_connection_sensor(hass, bypass_get_data):
     """Tests for pod status sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     [status, _] = sensors
 
@@ -116,3 +117,20 @@ async def test_cable_connection_sensor(hass, bypass_get_data):
 
     status.extra_attrs[ATTR_STATE] = "foo"
     assert status.is_on is False
+
+
+@pytest.mark.asyncio
+async def test_pod_home_smart_charging_sensor_uses_charger_status(
+    hass, bypass_get_data
+):
+    """The Pod Home sensor uses the status embedded in charger metadata."""
+    config_entry, _ = await setup_sensors(hass)
+    coordinator = config_entry.runtime_data
+    pod = coordinator.data[0]
+    charger = SimpleNamespace(ppid=pod.ppid, delegated_control_status="ENABLED")
+    coordinator.chargers[pod.ppid] = charger
+    sensor = PodPointSmartChargingSensor(coordinator, config_entry, 0)
+
+    assert sensor.is_on is True
+    charger.delegated_control_status = "inactive"
+    assert sensor.is_on is False

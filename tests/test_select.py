@@ -55,7 +55,7 @@ async def test_basic_mode_state_and_availability(hass, bypass_get_data):
     coordinator, entity = await setup_basic_mode_select(hass)
     ppid = entity.pod.ppid
 
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="INACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "INACTIVE"
     coordinator.charge_overrides[ppid] = []
     assert entity.available is True
     assert entity.current_option == BASIC_MODE_SCHEDULED
@@ -73,7 +73,7 @@ async def test_basic_mode_state_and_availability(hass, bypass_get_data):
     assert entity.current_option is None
 
     coordinator.charge_overrides[ppid] = []
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="ACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "ACTIVE"
     assert entity.available is False
 
 
@@ -86,9 +86,9 @@ async def test_smart_priority_unavailable_in_basic_mode(hass, bypass_get_data):
     )
     ppid = entity.pod.ppid
 
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="INACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "INACTIVE"
     assert entity.available is False
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="ACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "ACTIVE"
     assert entity.available is True
 
 

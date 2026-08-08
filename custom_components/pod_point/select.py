@@ -24,10 +24,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
             candidates = []
             if pod.ppid in coordinator.chargers:
                 candidates.append(("basic_mode", PodPointBasicChargingModeSelect))
-            if (
-                coordinator.smart_charging_preferences.get(pod.ppid) is not None
-                and _tariff_prices(coordinator, pod.ppid)
-            ):
+            if coordinator.smart_charging_preferences.get(
+                pod.ppid
+            ) is not None and _tariff_prices(coordinator, pod.ppid):
                 candidates.append(
                     ("smart_priority", PodPointSmartChargingPrioritySelect)
                 )
@@ -89,10 +88,7 @@ class PodPointSmartChargingPrioritySelect(PodPointEntity, SelectEntity):
         prices = _tariff_prices(self.coordinator, self.pod.ppid)
         price = min(prices) if option == PRIORITISE_LOWEST_COST else max(prices)
         charger = self.coordinator.chargers[self.pod.ppid]
-        await self.coordinator.async_api_call(
-            self.coordinator.api.async_set_smart_charging_max_price(charger, price)
-        )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_set_smart_charging_max_price(charger, price)
 
 
 class PodPointBasicChargingModeSelect(PodPointEntity, SelectEntity):
@@ -121,12 +117,16 @@ class PodPointBasicChargingModeSelect(PodPointEntity, SelectEntity):
 
     @property
     def available(self) -> bool:
-        control = self.coordinator.delegated_controls.get(self.pod.ppid)
         overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
         return (
             super().available
-            and control is not None
-            and control.status != "ACTIVE"
+            and getattr(
+                self.coordinator.chargers.get(self.pod.ppid),
+                "delegated_control_status",
+                None,
+            )
+            is not None
+            and not self.smart_charging_active
             and overrides is not None
             and not any(override.end_at is not None for override in overrides)
         )

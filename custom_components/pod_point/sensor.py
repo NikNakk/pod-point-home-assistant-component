@@ -1,7 +1,7 @@
 """Sensor platform for pod_point."""
 
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -67,7 +67,9 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 ("charge_override", PodPointChargeOverrideEntity),
             ]
             if coordinator.connectivity_v2.get(pod.ppid) is not None:
-                candidates.append(("connection_quality", PodPointConnectionQualitySensor))
+                candidates.append(
+                    ("connection_quality", PodPointConnectionQualitySensor)
+                )
             if coordinator.tariffs.get(pod.ppid):
                 candidates.append(("cheapest_tariff", PodPointCheapestTariffSensor))
             if coordinator.smart_charging_preferences.get(pod.ppid) is not None:
@@ -602,6 +604,9 @@ class PodPointTotalCostSensor(
     def currency(self) -> str:
         """Which currency type are we returning?"""
 
+        if currency := getattr(self.pod, "charge_currency", None):
+            return currency
+
         # TODO - Should use the default currency from HA here
         try:
             currency = self.config_entry.options[CONF_CURRENCY]
@@ -654,6 +659,9 @@ class PodPointLastCompleteChargeCostSensor(
     @property
     def currency(self) -> str:
         """Which currency type are we returning?"""
+
+        if currency := getattr(self.pod, "charge_currency", None):
+            return currency
 
         try:
             currency = self.config_entry.options[CONF_CURRENCY]

@@ -332,8 +332,9 @@ class PodPointEntity(CoordinatorEntity):
     @property
     def smart_charging_active(self) -> bool:
         """Return whether delegated smart charging is active for this charger."""
-        control = self.coordinator.delegated_controls.get(self.pod.ppid)
-        return control is not None and control.status == "ACTIVE"
+        charger = self.coordinator.chargers.get(self.pod.ppid)
+        status = getattr(charger, "delegated_control_status", None)
+        return isinstance(status, str) and status.upper() in {"ACTIVE", "ENABLED"}
 
     @property
     def timed_charge_override_active(self) -> bool:

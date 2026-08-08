@@ -1,7 +1,7 @@
 """Tests for Pod Home smart-charging number controls."""
 
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -26,10 +26,41 @@ async def test_max_price_unavailable_in_basic_mode(hass, bypass_get_data):
     entity = PodPointSmartChargingMaxPriceNumber(coordinator, entry, 0)
     ppid = entity.pod.ppid
 
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="INACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "INACTIVE"
     assert entity.available is False
-    coordinator.delegated_controls[ppid] = SimpleNamespace(status="ACTIVE")
+    coordinator.chargers[ppid].delegated_control_status = "ACTIVE"
     assert entity.available is True
+
+
+@pytest.mark.asyncio
+async def test_max_price_update_refreshes_preferences_immediately(
+    hass, bypass_get_data
+):
+    """A successful maximum-price write immediately replaces its slow cache."""
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = entry.runtime_data
+    entity = PodPointSmartChargingMaxPriceNumber(coordinator, entry, 0)
+    ppid = entity.pod.ppid
+    preferences = SimpleNamespace(max_price=0.17)
+    coordinator.api.async_set_smart_charging_max_price = AsyncMock(return_value=True)
+    coordinator.api.async_get_smart_charging_preferences = AsyncMock(
+        return_value=preferences
+    )
+
+    await entity.async_set_native_value(0.17)
+
+    charger = coordinator.chargers[ppid]
+    coordinator.api.async_set_smart_charging_max_price.assert_awaited_once_with(
+        charger, 0.17
+    )
+    coordinator.api.async_get_smart_charging_preferences.assert_awaited_once_with(
+        charger
+    )
+    assert coordinator.smart_charging_preferences[ppid] is preferences
+    assert entity.native_value == 0.17
 
 
 @pytest.mark.asyncio

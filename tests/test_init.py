@@ -1,10 +1,12 @@
 """Test pod_point setup process."""
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from homeassistant.config_entries import ConfigEntryState
-from podpointclient.errors import ApiConnectionError
 import pytest
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.helpers import entity_registry as er
+from podpointclient.errors import ApiConnectionError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point import (
@@ -41,6 +43,47 @@ async def test_setup_unload_and_reload_entry(hass, bypass_get_data):
 
     # Unload the entry and verify that the data has been removed
     assert await hass.config_entries.async_unload(config_entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_cached_optional_data_preserves_entity_discovery(hass, bypass_get_data):
+    """Fast refreshes retain entities discovered from the startup slow data."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    preferences = SimpleNamespace(max_price=0.15)
+    wallet = SimpleNamespace(rewards={}, allowance={}, payments={})
+    with (
+        patch(
+            "podpointclient.client.PodPointClient.async_get_smart_charging_preferences",
+            return_value=preferences,
+        ) as get_preferences,
+        patch(
+            "podpointclient.client.PodPointClient.async_get_reward_wallet",
+            return_value=wallet,
+        ) as get_wallet,
+    ):
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+        registry = er.async_get(hass)
+        before = {
+            entry.unique_id
+            for entry in registry.entities.values()
+            if entry.config_entry_id == config_entry.entry_id
+        }
+
+        await config_entry.runtime_data.async_refresh()
+        await hass.async_block_till_done()
+        after = {
+            entry.unique_id
+            for entry in registry.entities.values()
+            if entry.config_entry_id == config_entry.entry_id
+        }
+
+    assert after == before
+    assert any("smart_charging_max_price" in unique_id for unique_id in after)
+    assert any("reward_points" in unique_id for unique_id in after)
+    get_preferences.assert_awaited_once()
+    get_wallet.assert_awaited_once()
 
 
 @pytest.mark.asyncio

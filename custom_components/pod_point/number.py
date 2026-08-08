@@ -115,7 +115,4 @@ class PodPointSmartChargingMaxPriceNumber(PodPointEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         charger = self.coordinator.chargers[self.pod.ppid]
-        await self.coordinator.async_api_call(
-            self.coordinator.api.async_set_smart_charging_max_price(charger, value)
-        )
-        await self.coordinator.async_request_refresh()
+        await self.coordinator.async_set_smart_charging_max_price(charger, value)

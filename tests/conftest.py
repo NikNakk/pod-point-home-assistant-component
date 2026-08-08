@@ -18,6 +18,8 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+from podpointclient.charge_history import ChargeHistory
 from podpointclient.errors import AuthError
 from podpointclient.factories import (
     ChargeFactory,
@@ -26,7 +28,6 @@ from podpointclient.factories import (
     PodFactory,
     UserFactory,
 )
-import pytest
 
 from .fixtures import (
     CHARGES_COMPLETE_FIXTURE,
@@ -53,8 +54,9 @@ def auto_enable_custom_integrations(enable_custom_integrations):
 @pytest.fixture(name="skip_notifications", autouse=True)
 def skip_notifications_fixture():
     """Skip notification calls."""
-    with patch("homeassistant.components.persistent_notification.async_create"), patch(
-        "homeassistant.components.persistent_notification.async_dismiss"
+    with (
+        patch("homeassistant.components.persistent_notification.async_create"),
+        patch("homeassistant.components.persistent_notification.async_dismiss"),
     ):
         yield
 
@@ -77,9 +79,40 @@ def bypass_get_data_fixture():
     connectivity_status = connectivity_status_factory.build_connectivity_status(
         CONNECTIVITY_STATUS_COMPLETE_FIXTURE
     )
+    completed_history = ChargeHistory(
+        {
+            "data": {
+                "count": 8,
+                "charges": [
+                    {
+                        "id": f"new-{charge['id']}",
+                        "startedAt": charge["starts_at"],
+                        "endedAt": charge["ends_at"],
+                        "duration": charge["duration"],
+                        "energyTotal": charge["kwh_used"],
+                        "cost": {
+                            "amount": charge["energy_cost"],
+                            "currency": "GBP",
+                        },
+                        "charger": {
+                            "id": pod.ppid,
+                            "pluggedInAt": charge["starts_at"],
+                            "unpluggedAt": charge["ends_at"],
+                        },
+                    }
+                    for charge in CHARGES_COMPLETE_FIXTURE["charges"]
+                    if charge["ends_at"] is not None
+                    and charge["pod"]["id"] == pod.unit_id
+                ],
+            }
+        }
+    )
 
     charger = SimpleNamespace(
-        ppid=pod.ppid, unit_id=pod.unit_id, delegated_control_status=None
+        ppid=pod.ppid,
+        unit_id=pod.unit_id,
+        linked_at=pod.commissioned_at,
+        delegated_control_status="INACTIVE",
     )
     connectivity_v2 = SimpleNamespace(
         connection_state="Online",
@@ -88,56 +121,81 @@ def bypass_get_data_fixture():
         last_seen_at=pod.last_contact_at,
     )
     delegated_control = SimpleNamespace(status="INACTIVE")
-
-    with patch(
-        "podpointclient.client.PodPointClient.async_get_all_pods", return_value=pods
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_pod", return_value=pod
-    ), patch(
-        "podpointclient.client.PodPointClient.async_set_schedule", return_value=True
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_all_charges",
-        return_value=charges,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_credentials_verified",
-        return_value=True,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_firmware",
-        return_value=firmware,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_user",
-        return_value=user,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_connectivity_status",
-        return_value=connectivity_status,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_chargers",
-        return_value=[charger],
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_connectivity_status_v2",
-        return_value=connectivity_v2,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_tariffs", return_value=[]
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_charger_charge_overrides",
-        return_value=[],
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_delegated_control",
-        return_value=delegated_control,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_manual_schedules",
-        return_value=[],
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_smart_charging_preferences",
-        return_value=None,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_remote_lock", return_value=None
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_delegated_vehicles",
-        return_value=[],
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_reward_wallet",
-        return_value=None,
+    with (
+        patch(
+            "podpointclient.client.PodPointClient.async_get_all_pods", return_value=pods
+        ),
+        patch("podpointclient.client.PodPointClient.async_get_pod", return_value=pod),
+        patch(
+            "podpointclient.client.PodPointClient.async_set_schedule", return_value=True
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_all_charges",
+            return_value=charges,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_charges",
+            return_value=charges,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_credentials_verified",
+            return_value=True,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_firmware",
+            return_value=firmware,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_user",
+            return_value=user,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_connectivity_status",
+            return_value=connectivity_status,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_chargers",
+            return_value=[charger],
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_connectivity_status_v2",
+            return_value=connectivity_v2,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_tariffs", return_value=[]
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_charger_charge_overrides",
+            return_value=[],
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_delegated_control",
+            return_value=delegated_control,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_manual_schedules",
+            return_value=[],
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_smart_charging_preferences",
+            return_value=None,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_remote_lock",
+            return_value=None,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_delegated_vehicles",
+            return_value=[],
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_reward_wallet",
+            return_value=None,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_charge_history",
+            return_value=completed_history,
+        ),
     ):
         yield
 
@@ -150,14 +208,18 @@ def error_get_data_fixture():
     user_factory = UserFactory()
     user = user_factory.build_user(USER_COMPLETE_FIXTURE)
 
-    with patch(
-        "podpointclient.client.PodPointClient.async_get_all_pods",
-        side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
-    ), patch(
-        "podpointclient.client.PodPointClient.async_get_user",
-        return_value=user,
-    ), patch(
-        "podpointclient.client.PodPointClient.async_credentials_verified",
-        side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
+    with (
+        patch(
+            "podpointclient.client.PodPointClient.async_get_all_pods",
+            side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_get_user",
+            return_value=user,
+        ),
+        patch(
+            "podpointclient.client.PodPointClient.async_credentials_verified",
+            side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
+        ),
     ):
         yield

@@ -181,12 +181,16 @@ class PodPointChargeModeSwitch(PodPointEntity, SwitchEntity):
 
     @property
     def is_on(self):
-        control = self.coordinator.delegated_controls.get(self.pod.ppid)
-        return control is not None and control.status == "ACTIVE"
+        return self.smart_charging_active
 
     @property
     def available(self) -> bool:
         return (
             super().available
-            and self.coordinator.delegated_controls.get(self.pod.ppid) is not None
+            and getattr(
+                self.coordinator.chargers.get(self.pod.ppid),
+                "delegated_control_status",
+                None,
+            )
+            is not None
         )
