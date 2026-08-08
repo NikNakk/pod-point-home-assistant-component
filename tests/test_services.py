@@ -24,9 +24,7 @@ async def test_charge_now_service_with_data(hass, bypass_get_data):
 
     # Functions/objects can be patched directly in test code as well and can be used to test
     # additional things, like whether a function was called or what arguments it was called with
-    with patch(
-        "podpointclient.client.PodPointClient.async_create_charger_charge_override"
-    ) as title_func:
+    with patch("podpointclient.client.PodPointClient.async_start_boost") as title_func:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_CHARGE_NOW,
@@ -40,7 +38,7 @@ async def test_charge_now_service_with_data(hass, bypass_get_data):
         )
         assert title_func.called
 
-        charger = title_func.call_args.kwargs["charger"]
+        charger = title_func.call_args.args[0]
         hours = title_func.call_args.kwargs["hours"]
         minutes = title_func.call_args.kwargs["minutes"]
         seconds = title_func.call_args.kwargs["seconds"]
@@ -62,7 +60,7 @@ async def test_charge_now_service_with_data(hass, bypass_get_data):
         )
         assert title_func.called
 
-        charger = title_func.call_args.kwargs["charger"]
+        charger = title_func.call_args.args[0]
         hours = title_func.call_args.kwargs["hours"]
         minutes = title_func.call_args.kwargs["minutes"]
         seconds = title_func.call_args.kwargs["seconds"]
@@ -95,7 +93,7 @@ async def test_charge_now_service_targets_device(hass, bypass_get_data):
     assert device is not None
 
     with patch(
-        "podpointclient.client.PodPointClient.async_create_charger_charge_override"
+        "podpointclient.client.PodPointClient.async_start_boost"
     ) as create_override:
         await hass.services.async_call(
             DOMAIN,
@@ -104,7 +102,7 @@ async def test_charge_now_service_targets_device(hass, bypass_get_data):
             blocking=True,
         )
 
-    assert create_override.call_args.kwargs["charger"].ppid == "PSL-123456"
+    assert create_override.call_args.args[0].ppid == "PSL-123456"
     assert create_override.call_args.kwargs["minutes"] == 30
 
 
@@ -117,7 +115,7 @@ async def test_legacy_service_requires_device_for_multiple_pods(hass, bypass_get
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     coordinator = config_entry.runtime_data
-    coordinator.pods.append(coordinator.pods[0])
+    coordinator.data.append(coordinator.data[0])
 
     with pytest.raises(PodPointServiceException, match="device_id is required"):
         await hass.services.async_call(

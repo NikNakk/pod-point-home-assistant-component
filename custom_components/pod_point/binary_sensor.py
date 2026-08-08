@@ -7,8 +7,8 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.helpers.entity import EntityCategory
+from podpointclient.domain import StateValue
 
-from .const import ATTR_CONNECTION_STATE_ONLINE
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 
@@ -27,10 +27,10 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 ("cable", PodPointCableConnectionSensor),
                 ("cloud", PodPointCloudConnectionSensor),
             ]
-            if coordinator.remote_locks.get(pod.ppid) is not None:
-                candidates.append(("off_mode", PodPointOffModeSensor))
-            charger = coordinator.chargers.get(pod.ppid)
-            if charger is not None and charger.delegated_control_status is not None:
+            remote_lock = coordinator.remote_locks.get(pod.ppid)
+            if remote_lock is not None and remote_lock.off_mode is not None:
+                candidates.append(("off_mode", PodPointRemoteLockSensor))
+            if coordinator.smart_charging_states.get(pod.ppid) is not None:
                 candidates.append(("smart_charging", PodPointSmartChargingSensor))
 
             for key, entity_type in candidates:
@@ -78,24 +78,8 @@ class PodPointCloudConnectionSensor(PodPointEntity, BinarySensorEntity):
     @property
     def is_on(self):
         """Return true if the binary_sensor is on."""
-        status_v2 = self.coordinator.connectivity_v2.get(self.pod.ppid)
-        if status_v2 is not None:
-            return (
-                status_v2.connection_state is not None
-                and status_v2.connection_state.casefold()
-                == ATTR_CONNECTION_STATE_ONLINE.casefold()
-            )
-
-        if self.pod is None:
-            return False
-
-        if self.pod.connectivity_status is None:
-            return False
-
-        return (
-            self.pod.connectivity_status.connectivity_status
-            == ATTR_CONNECTION_STATE_ONLINE
-        )
+        state = self.coordinator.charger_states.get(self.charger.ppid)
+        return bool(state and state.connection.value is StateValue.ONLINE)
 
     @property
     def icon(self):
@@ -107,12 +91,12 @@ class PodPointCloudConnectionSensor(PodPointEntity, BinarySensorEntity):
         return "mdi:cloud-off"
 
 
-class PodPointOffModeSensor(PodPointEntity, BinarySensorEntity):
-    """Whether remote off mode is enabled in Pod Home."""
+class PodPointRemoteLockSensor(PodPointEntity, BinarySensorEntity):
+    """Whether the charger is secured using Pod Point Off mode."""
 
     _attr_has_entity_name = True
-    _attr_name = "Off mode"
-    _attr_icon = "mdi:power-plug-off"
+    _attr_name = "Remote lock"
+    _attr_icon = "mdi:lock"
 
     @property
     def unique_id(self):
@@ -120,7 +104,7 @@ class PodPointOffModeSensor(PodPointEntity, BinarySensorEntity):
 
     @property
     def is_on(self):
-        remote_lock = self.coordinator.remote_locks.get(self.pod.ppid)
+        remote_lock = self.coordinator.remote_locks.get(self.charger.ppid)
         return bool(remote_lock and remote_lock.off_mode)
 
 
@@ -137,7 +121,8 @@ class PodPointSmartChargingSensor(PodPointEntity, BinarySensorEntity):
 
     @property
     def is_on(self):
-        charger = self.coordinator.chargers.get(self.pod.ppid)
-        if charger is None or charger.delegated_control_status is None:
+        smart_charging = self.coordinator.smart_charging_states.get(self.charger.ppid)
+        status = getattr(smart_charging, "status", None)
+        if status is None:
             return False
-        return charger.delegated_control_status.upper() in {"ACTIVE", "ENABLED"}
+        return status.upper() in {"ACTIVE", "ENABLED"}

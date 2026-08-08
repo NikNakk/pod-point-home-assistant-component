@@ -9,8 +9,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from podpointclient.charge_mode import ChargeMode
-from podpointclient.charge_override import ChargeOverride
-from podpointclient.pod import Pod
+from podpointclient.domain import (
+    BasicChargingMode,
+    CapabilitySupport,
+    ChargerCapability,
+    ChargerRef,
+)
 from podpointclient.schedule import Schedule
 
 from .const import (
@@ -21,7 +25,6 @@ from .const import (
     ATTR_STATE_CONNECTED_WAITING,
     ATTR_STATE_IDLE,
     ATTR_STATE_PENDING,
-    ATTR_STATE_RANKING,
     ATTR_STATE_SUSPENDED_EV,
     ATTR_STATE_SUSPENDED_EVSE,
     ATTR_STATE_WAITING,
@@ -30,7 +33,7 @@ from .const import (
     DOMAIN,
     NAME,
 )
-from .coordinator import PodPointDataUpdateCoordinator
+from .coordinator import ChargerMetrics, PodPointDataUpdateCoordinator
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -45,49 +48,42 @@ class PodPointEntity(CoordinatorEntity):
         idx: int,
     ):
         super().__init__(coordinator)
-        self.pod_id = idx
-        self._pod_ppid = coordinator.data[idx].ppid
+        self._charger_ppid = coordinator.data[idx].ppid
         self.config_entry = config_entry
         self.extra_attrs = {}
 
         self.__update_attrs()
 
     def __update_attrs(self):
-        pod: Pod = self.pod
-
+        charger = self.charger
+        metrics = self.metrics
         attrs = {
             "attribution": ATTRIBUTION,
-            "id": pod.id,
+            "id": charger.unit_id,
             "integration": DOMAIN,
             "suggested_area": "Outside",
-            "total_kwh": pod.total_kwh,
-            "total_charge_seconds": pod.total_charge_seconds,
-            "current_kwh": pod.current_kwh,
-            "charge_mode": pod.charge_mode,
+            "ppid": charger.ppid,
+            "unit_id": charger.unit_id,
+            "timezone": charger.timezone,
+            "model": charger.model_name,
+            "total_kwh": metrics.total_kwh,
+            "total_charge_seconds": metrics.total_charge_seconds,
+            "current_kwh": metrics.current_kwh,
+            "charge_mode": self.charge_mode,
         }
 
-        # Preserve the established diagnostic attributes without publishing the
-        # charger's precise home coordinates into Home Assistant's state machine.
-        pod_attrs = dict(pod.dict)
-        pod_attrs.pop("location", None)
-        attrs.update(pod_attrs)
-
-        state = None
-        connectivity_v2 = self.coordinator.connectivity_v2.get(pod.ppid)
-        if connectivity_v2 is not None and connectivity_v2.charging_state is not None:
-            # The coordinator normalizes Pod Home values such as
-            # ``SuspendedEVSE`` to HA's ``suspended-evse`` enum value.
-            state = self.compare_state(state, pod.charging_state)
-        else:
-            for status in pod.statuses:
-                state = self.compare_state(state, status.key_name)
-
+        charger_state = self.coordinator.charger_states.get(charger.ppid)
+        state = (
+            charger_state.charging.value.value.replace("_", "-")
+            if charger_state is not None and charger_state.charging.value is not None
+            else None
+        )
         is_available_state = (state == ATTR_STATE_AVAILABLE) or (
             state == ATTR_STATE_IDLE
         )
         is_charging_state = state == ATTR_STATE_CHARGING
-        is_override_charge_mode = pod.charge_mode == ChargeMode.OVERRIDE
-        is_manual_charge_mode = pod.charge_mode == ChargeMode.MANUAL
+        is_override_charge_mode = self.charge_mode == ChargeMode.OVERRIDE
+        is_manual_charge_mode = self.charge_mode == ChargeMode.MANUAL
         charging_not_allowed = self.charging_allowed is False
         should_be_waiting_state = is_available_state and charging_not_allowed
         should_be_connected_waiting_state = is_charging_state and charging_not_allowed
@@ -98,16 +94,17 @@ class PodPointEntity(CoordinatorEntity):
             is_override_charge_mode or is_manual_charge_mode
         )
         should_be_suspended_ev = is_charging_state and (
-            pod.charging_state == ATTR_STATE_SUSPENDED_EV
+            state == ATTR_STATE_SUSPENDED_EV
         )
         should_be_suspended_evse = is_charging_state and (
-            pod.charging_state == ATTR_STATE_SUSPENDED_EVSE
+            state == ATTR_STATE_SUSPENDED_EVSE
         )
-        should_be_pending = (
-            self.coordinator.last_message_at is not None
-            and self.pod.last_message_at is not None
-            and self.coordinator.last_message_at > self.pod.last_message_at
+        pending_at = self.coordinator.pending_request_at.get(charger.ppid)
+        should_be_pending = pending_at is not None and (
+            self.last_message_at is None or pending_at > self.last_message_at
         )
+        if pending_at is not None and not should_be_pending:
+            self.coordinator.pending_request_at.pop(charger.ppid, None)
 
         if should_be_waiting_state:
             state = ATTR_STATE_WAITING
@@ -148,14 +145,29 @@ class PodPointEntity(CoordinatorEntity):
         self.async_write_ha_state()
 
     @property
-    def pod(self) -> Pod:
-        """Return the underlying pod that drives this entity"""
-        return next(pod for pod in self.coordinator.data if pod.ppid == self._pod_ppid)
+    def charger(self) -> ChargerRef:
+        """Return the canonical charger that drives this entity."""
+        return next(
+            charger
+            for charger in self.coordinator.data
+            if charger.ppid == self._charger_ppid
+        )
+
+    @property
+    def metrics(self):
+        """Return mutable charge aggregates for this charger."""
+        return self.coordinator.metrics.setdefault(self.charger.ppid, ChargerMetrics())
+
+    @property
+    def last_message_at(self) -> datetime | None:
+        """Return the latest charger message timestamp."""
+        state = self.coordinator.charger_states.get(self.charger.ppid)
+        return state.last_seen_at if state is not None else None
 
     @property
     def unique_id(self):
         """Return a unique ID to use for this entity."""
-        return f"{DOMAIN}_{self.pod.ppid}"
+        return f"{DOMAIN}_{self.charger.ppid}"
 
     @property
     def available(self) -> bool:
@@ -163,17 +175,19 @@ class PodPointEntity(CoordinatorEntity):
         return (
             super().available
             and typed_coordinator.online is True
-            and any(pod.ppid == self._pod_ppid for pod in typed_coordinator.data)
+            and any(
+                charger.ppid == self._charger_ppid for charger in typed_coordinator.data
+            )
         )
 
     @property
     def device_info(self) -> dict[str, Any]:
         name = NAME
-        if len(self.psl) > 0:
-            name = self.psl
+        if self.charger.ppid:
+            name = self.charger.ppid
 
         dictionary = {
-            "identifiers": {(DOMAIN, self.pod.ppid)},
+            "identifiers": {(DOMAIN, self.charger.ppid)},
             "name": name,
             "model": self.model,
             "manufacturer": NAME,
@@ -192,16 +206,21 @@ class PodPointEntity(CoordinatorEntity):
     @property
     def charging_allowed(self) -> bool:
         """Is charging allowed by schedule?"""
-        pod = self.pod
-        if pod.ppid in self.coordinator.chargers:
+        charger = self.charger
+        if (
+            charger is not None
+            and charger.capability(ChargerCapability.LEGACY_SCHEDULING)
+            is CapabilitySupport.UNSUPPORTED
+        ):
             # Pod Home connectivity is authoritative. Legacy schedules are not
             # available to, or used by, the current app.
             return True
-        schedules: list[Schedule] = pod.charge_schedules
-        override: ChargeOverride = pod.charge_override
+        schedules: list[Schedule] = self.coordinator.legacy_schedules.get(
+            charger.ppid, []
+        )
 
         # Are we in 'manual' mode?
-        if pod.charge_mode == ChargeMode.MANUAL:
+        if self.charge_mode == ChargeMode.MANUAL:
             return True
 
         # No schedules are found, we will assume we can charge
@@ -209,11 +228,14 @@ class PodPointEntity(CoordinatorEntity):
             return True
 
         # If there is a charge override in place, we can charge
-        if override is not None and override.active:
+        boost = self.coordinator.boost_states.get(charger.ppid)
+        if boost is not None and boost.active:
             return True
 
         try:
-            timezone = ZoneInfo(pod.timezone or self.coordinator.hass.config.time_zone)
+            timezone = ZoneInfo(
+                charger.timezone or self.coordinator.hass.config.time_zone
+            )
         except ZoneInfoNotFoundError:
             timezone = ZoneInfo("UTC")
         now = datetime.now(timezone)
@@ -282,37 +304,28 @@ class PodPointEntity(CoordinatorEntity):
     @property
     def unit_id(self) -> int:
         """Return the unit id - used for schedule updates"""
-        return self.pod.unit_id
-
-    @property
-    def psl(self) -> str:
-        """Return the PSL - used for identifying multiple pods"""
-        return self.pod.ppid
+        return self.charger.unit_id
 
     @property
     def model(self) -> str:
         """Return the model of our podpoint"""
-        return self.pod.model.name
+        return self.charger.model_name or NAME
 
     @property
     def firmware_version(self) -> str:
         """Return the pod's firmware version"""
-        firmware = None
-
-        if self.pod.firmware and self.pod.firmware.version_info:
-            firmware = self.pod.firmware.version_info.manifest_id
-
-        return firmware
+        firmware = self.coordinator.firmware.get(self.charger.ppid)
+        if firmware is not None and firmware.version_info is not None:
+            return firmware.version_info.manifest_id
+        return None
 
     @property
     def serial_number(self) -> str:
         """Return the serial number, or ppid"""
-        serial_number: str = self.pod.ppid
-
-        if self.pod.firmware:
-            serial_number = self.pod.firmware.serial_number
-
-        return serial_number
+        firmware = self.coordinator.firmware.get(self.charger.ppid)
+        if firmware is not None and firmware.serial_number:
+            return firmware.serial_number
+        return self.charger.ppid
 
     @property
     def image(self) -> str:
@@ -333,68 +346,37 @@ class PodPointEntity(CoordinatorEntity):
     @property
     def smart_charging_active(self) -> bool:
         """Return whether delegated smart charging is active for this charger."""
-        charger = self.coordinator.chargers.get(self.pod.ppid)
-        status = getattr(charger, "delegated_control_status", None)
+        smart_charging = self.coordinator.smart_charging_states.get(self.charger.ppid)
+        status = getattr(smart_charging, "status", None)
         return isinstance(status, str) and status.upper() in {"ACTIVE", "ENABLED"}
 
     @property
     def timed_charge_override_active(self) -> bool:
         """Return whether this charger has an active timed override."""
-        if self.pod.ppid in self.coordinator.chargers:
-            overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
-            return overrides is not None and any(
-                override.end_at is not None for override in overrides
-            )
-
-        override = self.pod.charge_override
-        return override is not None and override.active
+        boost = self.coordinator.boost_states.get(self.charger.ppid)
+        return bool(boost and boost.active and boost.timed)
 
     @property
     def charge_now_available(self) -> bool:
         """Return whether a timed override is meaningful and observable."""
-        if self.pod.ppid in self.coordinator.chargers:
-            overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
-            if overrides is None:
-                return False
-            has_timed_override = any(
-                override.end_at is not None for override in overrides
-            )
-            has_open_ended_override = any(
-                override.end_at is None for override in overrides
-            )
-            return has_timed_override or not has_open_ended_override
+        mode = self.coordinator.basic_charging_modes.get(self.charger.ppid)
+        if mode is None:
+            return False
+        return mode is not BasicChargingMode.ALWAYS_ON
 
-        return self.pod.charge_mode != ChargeMode.MANUAL
-
-    @staticmethod
-    def compare_state(state, pod_state) -> str:
-        """Given two states, which one is most important"""
-        ranking = ATTR_STATE_RANKING
-
-        state_sanitized = state.lower().replace("_", "-") if state is not None else None
-        pod_state_sanitized = (
-            pod_state.lower().replace("_", "-") if pod_state is not None else None
-        )
-
-        # If pod state is None, but state is set, return the state
-        if pod_state_sanitized is None and state_sanitized is not None:
-            return state_sanitized
-
-        if state_sanitized is None and pod_state_sanitized is not None:
-            return pod_state_sanitized
-
-        try:
-            state_rank = ranking.index(state_sanitized)
-        except ValueError:
-            state_rank = 100
-
-        try:
-            pod_rank = ranking.index(pod_state_sanitized)
-        except ValueError:
-            pod_rank = 100
-
-        winner = state_sanitized if state_rank >= pod_rank else pod_state_sanitized
-        return winner
+    @property
+    def charge_mode(self) -> ChargeMode | None:
+        """Return the integration's established mode over canonical state."""
+        if self.smart_charging_active:
+            return ChargeMode.SMART
+        mode = self.coordinator.basic_charging_modes.get(self.charger.ppid)
+        if mode is BasicChargingMode.TIMED_BOOST:
+            return ChargeMode.OVERRIDE
+        if mode is BasicChargingMode.ALWAYS_ON:
+            return ChargeMode.MANUAL
+        if mode is BasicChargingMode.SCHEDULED:
+            return ChargeMode.SMART
+        return None
 
     def __pod_image(self, model: str) -> str:
         if model is None:

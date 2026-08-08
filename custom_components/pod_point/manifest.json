@@ -566,7 +566,7 @@
   "issue_tracker": "https://github.com/mattrayner/pod-point-home-assistant-component/issues",
   "quality_scale": "silver",
   "requirements": [
-    "podpointclient @ git+https://github.com/NikNakk/podpointclient.git@1173802"
+    "podpointclient-niknakk==1.7.0b8"
   ],
   "version": "2.1.0"
 }

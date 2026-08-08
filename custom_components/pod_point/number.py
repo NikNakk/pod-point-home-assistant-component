@@ -55,7 +55,7 @@ class PodPointChargeNowDurationNumber(PodPointEntity, RestoreNumber):
         super().__init__(coordinator, config_entry, idx)
         self._attr_native_value = DEFAULT_CHARGE_NOW_DURATION
         coordinator.charge_now_durations.setdefault(
-            self.pod.ppid, DEFAULT_CHARGE_NOW_DURATION
+            self.charger.ppid, DEFAULT_CHARGE_NOW_DURATION
         )
 
     @property
@@ -73,14 +73,14 @@ class PodPointChargeNowDurationNumber(PodPointEntity, RestoreNumber):
             last_data := await self.async_get_last_number_data()
         ) is not None and last_data.native_value is not None:
             self._attr_native_value = last_data.native_value
-        self.coordinator.charge_now_durations[self.pod.ppid] = int(
+        self.coordinator.charge_now_durations[self.charger.ppid] = int(
             self._attr_native_value
         )
 
     async def async_set_native_value(self, value: float) -> None:
         """Store the duration without changing an active override."""
         self._attr_native_value = value
-        self.coordinator.charge_now_durations[self.pod.ppid] = int(value)
+        self.coordinator.charge_now_durations[self.charger.ppid] = int(value)
         self.async_write_ha_state()
 
 
@@ -106,7 +106,7 @@ class PodPointSmartChargingMaxPriceNumber(PodPointEntity, NumberEntity):
 
     @property
     def native_value(self):
-        preferences = self.coordinator.smart_charging_preferences.get(self.pod.ppid)
+        preferences = self.coordinator.smart_charging_preferences.get(self.charger.ppid)
         return preferences.max_price if preferences is not None else None
 
     @property
@@ -114,5 +114,5 @@ class PodPointSmartChargingMaxPriceNumber(PodPointEntity, NumberEntity):
         return super().available and self.smart_charging_active
 
     async def async_set_native_value(self, value: float) -> None:
-        charger = self.coordinator.chargers[self.pod.ppid]
+        charger = self.charger
         await self.coordinator.async_set_smart_charging_max_price(charger, value)

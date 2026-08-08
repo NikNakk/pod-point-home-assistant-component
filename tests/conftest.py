@@ -20,6 +20,7 @@ from unittest.mock import patch
 
 import pytest
 from podpointclient.charge_history import ChargeHistory
+from podpointclient.charger import Charger
 from podpointclient.errors import AuthError
 from podpointclient.factories import (
     ChargeFactory,
@@ -108,11 +109,15 @@ def bypass_get_data_fixture():
         }
     )
 
-    charger = SimpleNamespace(
-        ppid=pod.ppid,
-        unit_id=pod.unit_id,
-        linked_at=pod.commissioned_at,
-        delegated_control_status="INACTIVE",
+    charger = Charger(
+        {
+            "ppid": pod.ppid,
+            "unitId": pod.unit_id,
+            "linkedAt": pod.commissioned_at.isoformat(),
+            "timezone": pod.timezone,
+            "delegatedControl": {"status": "INACTIVE"},
+            "modelInfo": {"style": pod.model.name},
+        }
     )
     connectivity_v2 = SimpleNamespace(
         connection_state="Online",
@@ -138,7 +143,7 @@ def bypass_get_data_fixture():
             return_value=charges,
         ),
         patch(
-            "podpointclient.client.PodPointClient.async_credentials_verified",
+            "podpointclient.client.PodPointClient.async_charger_credentials_verified",
             return_value=True,
         ),
         patch(
@@ -222,7 +227,7 @@ def error_get_data_fixture():
             side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
         ),
         patch(
-            "podpointclient.client.PodPointClient.async_credentials_verified",
+            "podpointclient.client.PodPointClient.async_charger_credentials_verified",
             side_effect=AuthError(401, "AUTH_ERROR_MESSAGE"),
         ),
     ):

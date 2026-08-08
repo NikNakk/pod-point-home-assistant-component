@@ -2,6 +2,7 @@
 
 import logging
 
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
@@ -10,7 +11,6 @@ from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 from podpointclient.client import PodPointClient
 from podpointclient.errors import ApiConnectionError, AuthError, SessionError
-import voluptuous as vol
 
 from .const import (
     CONF_CURRENCY,
@@ -144,9 +144,7 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_user()
 
-    async def _show_config_form(
-        self, user_input: dict[str, str]
-    ) -> ConfigFlowResult:  # pylint: disable=unused-argument
+    async def _show_config_form(self, user_input: dict[str, str]) -> ConfigFlowResult:  # pylint: disable=unused-argument
         """Show the configuration form to edit location data."""
         return self.async_show_form(
             step_id="user",
@@ -166,7 +164,7 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             client = PodPointClient(
                 username=username, password=password, session=session
             )
-            if not await client.async_credentials_verified():
+            if not await client.async_charger_credentials_verified():
                 raise InvalidAuth
         except (AuthError, SessionError) as err:
             raise InvalidAuth from err
@@ -177,9 +175,7 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
     """Pod Point config flow options handler."""
 
-    async def async_step_init(
-        self, _=None
-    ) -> ConfigFlowResult:  # pylint: disable=unused-argument
+    async def async_step_init(self, _=None) -> ConfigFlowResult:  # pylint: disable=unused-argument
         """Manage the options."""
         self.options = dict(self.config_entry.options)
         return await self.async_step_user()

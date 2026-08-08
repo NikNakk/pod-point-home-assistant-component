@@ -33,9 +33,12 @@ async def async_setup_entry(
 
     def _add_new_entities() -> None:
         entities = []
-        for index, pod in enumerate(coordinator.data):
-            if pod.ppid not in known_pods and pod.firmware is not None:
-                known_pods.add(pod.ppid)
+        for index, charger in enumerate(coordinator.data):
+            if (
+                charger.ppid not in known_pods
+                and coordinator.firmware.get(charger.ppid) is not None
+            ):
+                known_pods.add(charger.ppid)
                 entities.append(
                     PodUpdateEntity(coordinator, UPDATE_ENTITY_TYPES, entry, index)
                 )
@@ -76,23 +79,23 @@ class PodUpdateEntity(PodPointEntity, UpdateEntity):
     @property
     def installed_version(self) -> str | None:
         """Version installed and in use."""
-        return self.pod.firmware.firmware_version
+        return self.coordinator.firmware[self.charger.ppid].firmware_version
 
     @property
     def latest_version(self) -> str | None:
         """Latest version available for install."""
         return (
-            f"{self.pod.firmware.firmware_version}_UPDATE_AVAILABLE"
-            if self.pod.firmware.update_available
+            f"{self.installed_version}_UPDATE_AVAILABLE"
+            if self.coordinator.firmware[self.charger.ppid].update_available
             else self.installed_version
         )
 
     def release_notes(self) -> str | None:
         """Return full release notes."""
         return (
-            f"A firmware update is available for {self.pod.ppid}."
+            f"A firmware update is available for {self.charger.ppid}."
             "\n\nExternal updating is not supported by the PodPoint APIs,"
             " please check the PodPoint mobile app for next steps."
-            if self.pod.firmware.update_available
-            else f"{self.pod.ppid} is up to date!"
+            if self.coordinator.firmware[self.charger.ppid].update_available
+            else f"{self.charger.ppid} is up to date!"
         )

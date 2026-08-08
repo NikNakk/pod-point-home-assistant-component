@@ -1,7 +1,6 @@
 """Services for the Pod Point integration."""
 
 import logging
-from datetime import UTC, datetime
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
@@ -10,8 +9,8 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from podpointclient.client import PodPointClient
+from podpointclient.domain import ChargerRef
 from podpointclient.errors import APIError, RequestValidationError
-from podpointclient.pod import Pod
 
 from .const import (
     ATTR_CONFIG_ENTRY_ID,
@@ -121,18 +120,18 @@ def get_coordinator(
 
 def get_service_target(
     hass: HomeAssistant, call: ServiceCall
-) -> tuple[PodPointDataUpdateCoordinator, Pod]:
-    """Resolve a service call to one specific Pod."""
+) -> tuple[PodPointDataUpdateCoordinator, ChargerRef]:
+    """Resolve a service call to one specific charger."""
     config_entry_id = call.data.get(ATTR_CONFIG_ENTRY_ID)
     device_id = call.data.get(ATTR_DEVICE_ID)
 
     if device_id is None:
         coordinator = get_coordinator(hass, config_entry_id)
-        if len(coordinator.pods) != 1:
+        if len(coordinator.data) != 1:
             raise PodPointServiceException(
-                f"device_id is required for accounts with {len(coordinator.pods)} Pods"
+                f"device_id is required for accounts with {len(coordinator.data)} chargers"
             )
-        return coordinator, coordinator.pods[0]
+        return coordinator, coordinator.data[0]
 
     device = dr.async_get(hass).async_get(device_id)
     if device is None:
@@ -158,12 +157,13 @@ def get_service_target(
         ):
             continue
         coordinator = entry.runtime_data
-        for pod in coordinator.pods:
-            known_identifiers = {pod.ppid}
-            if pod.firmware is not None and pod.firmware.serial_number:
-                known_identifiers.add(pod.firmware.serial_number)
+        for charger in coordinator.data:
+            known_identifiers = {charger.ppid}
+            firmware = coordinator.firmware.get(charger.ppid)
+            if firmware is not None and firmware.serial_number:
+                known_identifiers.add(firmware.serial_number)
             if known_identifiers & identifiers:
-                return coordinator, pod
+                return coordinator, charger
 
     raise PodPointServiceException(
         f"Device with id {device_id} is not a loaded Pod Point charger"
@@ -173,16 +173,16 @@ def get_service_target(
 async def handle_charge_now(
     coordinator: PodPointDataUpdateCoordinator,
     call: ServiceCall,
-    pod: Pod | None = None,
+    charger: ChargerRef | None = None,
 ) -> None:
     """Handle the call for the add_product service."""
-    if pod is None:
-        pods: list[Pod] = coordinator.pods
-        if len(pods) != 1:
+    if charger is None:
+        chargers: list[ChargerRef] = coordinator.data
+        if len(chargers) != 1:
             raise PodPointServiceException(
-                f"Service requires a specific Pod, found {len(pods)} Pods"
+                f"Service requires a specific charger, found {len(chargers)} chargers"
             )
-        pod = pods[0]
+        charger = chargers[0]
 
     hours = call.data.get(ATTR_HOURS, 0)
     minutes = call.data.get(ATTR_MINUTES, 0)
@@ -198,58 +198,46 @@ async def handle_charge_now(
             "Please pass an hours, minutes or seconds value. Cannot set 'charge now' with 0 values."
         )
 
-    await async_start_charge_now(coordinator, pod, hours, minutes, seconds)
+    await async_start_charge_now(coordinator, charger, hours, minutes, seconds)
 
 
 async def async_start_charge_now(
     coordinator: PodPointDataUpdateCoordinator,
-    pod: Pod,
+    charger: ChargerRef,
     hours: int,
     minutes: int,
     seconds: int = 0,
 ) -> None:
-    """Start a timed charge override for one Pod."""
+    """Start a timed charge override for one charger."""
     api: PodPointClient = coordinator.api
-    charger = coordinator.chargers.get(pod.ppid)
-    if charger is not None:
-        await api.async_create_charger_charge_override(
-            charger=charger, hours=hours, minutes=minutes, seconds=seconds
-        )
-    else:
-        await api.async_set_charge_override(
-            pod=pod, hours=hours, minutes=minutes, seconds=seconds
-        )
+    await api.async_start_boost(charger, hours=hours, minutes=minutes, seconds=seconds)
 
-    coordinator.last_message_at = datetime.now(UTC)
+    coordinator.mark_charger_pending(charger)
     await coordinator.async_request_refresh()
 
 
 async def handle_stop_charge_now(
     coordinator: PodPointDataUpdateCoordinator,
-    pod: Pod | None = None,
+    charger: ChargerRef | None = None,
 ) -> None:
     """Handle the call for the add_product service."""
-    if pod is None:
-        pods: list[Pod] = coordinator.pods
-        if len(pods) != 1:
+    if charger is None:
+        chargers: list[ChargerRef] = coordinator.data
+        if len(chargers) != 1:
             raise PodPointServiceException(
-                f"Service requires a specific Pod, found {len(pods)} Pods"
+                f"Service requires a specific charger, found {len(chargers)} chargers"
             )
-        pod = pods[0]
+        charger = chargers[0]
 
-    await async_stop_charge_now(coordinator, pod)
+    await async_stop_charge_now(coordinator, charger)
 
 
 async def async_stop_charge_now(
-    coordinator: PodPointDataUpdateCoordinator, pod: Pod
+    coordinator: PodPointDataUpdateCoordinator, charger: ChargerRef
 ) -> None:
-    """Stop a charge override for one Pod."""
+    """Stop a charge override for one charger."""
     api: PodPointClient = coordinator.api
-    charger = coordinator.chargers.get(pod.ppid)
-    if charger is not None:
-        await api.async_delete_charger_charge_overrides(charger=charger)
-    else:
-        await api.async_delete_charge_override(pod=pod)
+    await api.async_stop_boost(charger)
 
-    coordinator.last_message_at = datetime.now(UTC)
+    coordinator.mark_charger_pending(charger)
     await coordinator.async_request_refresh()

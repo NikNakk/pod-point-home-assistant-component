@@ -9,7 +9,18 @@ import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from podpointclient.charge_history import ChargeHistory
+from podpointclient.charger import Charger
 from podpointclient.client import PodPointClient
+from podpointclient.domain import (
+    BasicChargingMode,
+    BoostState,
+    ChargerRef,
+    ChargerSource,
+    ChargerState,
+    NormalizedStateValue,
+    StateValue,
+    charger_ref_from_pod,
+)
 from podpointclient.errors import ApiConnectionError, APIError, AuthError, SessionError
 from podpointclient.factories import (
     ChargeFactory,
@@ -17,12 +28,12 @@ from podpointclient.factories import (
     PodFactory,
     UserFactory,
 )
-from podpointclient.pod import Pod
 from podpointclient.user import User
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point.const import DOMAIN
 from custom_components.pod_point.coordinator import (
+    ChargerMetrics,
     PodPointDataUpdateCoordinator,
     UpdateFailed,
 )
@@ -65,8 +76,28 @@ async def subject_with_data(hass) -> PodPointDataUpdateCoordinator:
     user = user_factory.build_user(USER_COMPLETE_FIXTURE)
 
     coordinator: PodPointDataUpdateCoordinator = await subject(hass)
-    coordinator.pods = pods
-    coordinator.data = pods
+    charger = charger_ref_from_pod(pods[0])
+    coordinator.data = [charger]
+    coordinator.legacy_schedules[charger.ppid] = list(pods[0].charge_schedules)
+    coordinator.boost_states[charger.ppid] = BoostState(
+        ppid=charger.ppid, active=False, timed=False
+    )
+    coordinator.basic_charging_modes[charger.ppid] = BasicChargingMode.SCHEDULED
+    coordinator.charger_states[charger.ppid] = ChargerState(
+        connection=NormalizedStateValue(StateValue.ONLINE, "Online"),
+        charging=NormalizedStateValue(StateValue.CHARGING, "Charging"),
+        last_seen_at=pods[0].last_contact_at,
+        signal_strength_dbm=-72,
+    )
+    coordinator.firmware[charger.ppid] = pods[0].firmware
+    coordinator.metrics[charger.ppid] = ChargerMetrics(
+        total_kwh=pods[0].total_kwh,
+        total_charge_seconds=pods[0].total_charge_seconds,
+        current_kwh=pods[0].current_kwh,
+        total_cost=pods[0].total_cost,
+        last_charge_cost=getattr(pods[0], "last_charge_cost", None),
+        charge_currency=getattr(pods[0], "charge_currency", None),
+    )
     coordinator.user = user
     coordinator.online = True
     return coordinator
@@ -94,26 +125,65 @@ async def test_coordinator_refresh(hass, bypass_get_data):
     assert len(coordinator.data) == 1
     assert coordinator.online is True
 
-    pod = coordinator.data[0]
-    assert isinstance(pod, Pod)
-    assert pod.charging_state == "suspended-evse"
-    assert coordinator.connectivity_v2[pod.ppid].connection_state == "Online"
-    assert coordinator.chargers[pod.ppid].delegated_control_status == "INACTIVE"
-    assert coordinator.charge_overrides[pod.ppid] == []
-    assert len(pod.charges) == 1
-    assert len(coordinator.completed_charges[pod.ppid]) == 8
-    assert pod.current_kwh == 3.2
-    assert next(charge for charge in pod.charges if charge.ends_at is None).starts_at
-    assert pod.last_charge_cost == 116
+    charger = coordinator.data[0]
+    assert isinstance(charger, ChargerRef)
+    assert (
+        coordinator.charger_states[charger.ppid].charging.value
+        is StateValue.SUSPENDED_EVSE
+    )
+    assert (
+        coordinator.charger_states[charger.ppid].connection.value is StateValue.ONLINE
+    )
+    assert coordinator.charger_states[charger.ppid].signal_strength_dbm is None
+    assert coordinator.charger_states[charger.ppid].connection_quality.raw == 4
+    assert (
+        coordinator.charger_states[charger.ppid].connection_quality.source
+        is ChargerSource.HOME
+    )
+    assert coordinator.smart_charging_states[charger.ppid].status == "INACTIVE"
+    assert coordinator.boost_states[charger.ppid].active is False
+    assert coordinator.basic_charging_modes[charger.ppid] is BasicChargingMode.SCHEDULED
+    assert len(coordinator.live_sessions[charger.ppid]) == 1
+    assert len(coordinator.completed_sessions[charger.ppid]) == 8
+    assert coordinator.metrics[charger.ppid].current_kwh == 3.2
+    assert coordinator.metrics[charger.ppid].active_started_at is not None
+    assert coordinator.metrics[charger.ppid].last_charge_cost == 116
     assert isinstance(coordinator.user, User) is True
     coordinator.api.async_get_user.assert_awaited_once_with(includes=["account"])
-    coordinator.api.async_get_delegated_control.assert_not_awaited()
+    coordinator.api.async_get_delegated_control.assert_awaited_once()
     coordinator.api.async_get_manual_schedules.assert_not_awaited()
     coordinator.api.async_get_charge_history.assert_awaited_once_with(
-        pod.commissioned_at.date(), datetime.now(UTC).date()
+        charger.linked_at.date(), datetime.now(UTC).date()
     )
     coordinator.api.async_get_all_charges.assert_not_awaited()
     coordinator.api.async_get_charges.assert_awaited_once_with(perpage=3, page=1)
+
+
+@pytest.mark.asyncio
+async def test_legacy_discovery_keeps_original_pod_without_synthetic_view(
+    hass, bypass_get_data
+):
+    """Legacy fallback wraps, but never copies or synthesizes, its wire object."""
+    coordinator = await subject(hass)
+    legacy_pod = coordinator.api.async_get_all_pods.return_value[0]
+    coordinator.api.async_get_chargers.side_effect = APIError(404, "unsupported")
+    coordinator.api.async_get_charge_override = AsyncMock(
+        return_value=legacy_pod.charge_override
+    )
+
+    await coordinator.async_refresh()
+
+    [charger] = coordinator.data
+    assert isinstance(charger, ChargerRef)
+    assert charger.source is ChargerSource.LEGACY
+    assert charger.raw is legacy_pod
+    assert coordinator.charger_states[charger.ppid].signal_strength_dbm == -68
+    assert coordinator.charger_states[charger.ppid].connection_quality.raw == 3
+    assert (
+        coordinator.charger_states[charger.ppid].connection_quality.source
+        is ChargerSource.LEGACY
+    )
+    assert coordinator.boost_states[charger.ppid] is not None
 
 
 def reset_api_mocks(coordinator: PodPointDataUpdateCoordinator) -> None:
@@ -135,6 +205,23 @@ def reset_api_mocks(coordinator: PodPointDataUpdateCoordinator) -> None:
         "async_get_charge_history",
     ):
         getattr(coordinator.api, name).reset_mock()
+
+
+def completed_session_ids(
+    coordinator: PodPointDataUpdateCoordinator, ppid: str
+) -> list[str | None]:
+    """Return canonical completed-session IDs for one charger."""
+    return [
+        session.session_id
+        for session in coordinator.completed_sessions.get(ppid, {}).values()
+    ]
+
+
+def live_charge_ids(
+    coordinator: PodPointDataUpdateCoordinator, ppid: str
+) -> list[int | None]:
+    """Return raw IDs retained by canonical live sessions."""
+    return [session.raw.id for session in coordinator.live_sessions.get(ppid, [])]
 
 
 def build_charge(
@@ -314,7 +401,7 @@ async def test_repeated_idle_cycles_skip_legacy_charges(hass, bypass_get_data):
     coordinator = await subject(hass)
     set_connectivity_state(coordinator, "Available")
     await coordinator.async_refresh()
-    cached_ids = [charge.id for charge in coordinator.home_charges]
+    cached_ids = live_charge_ids(coordinator, "PSL-123456")
     cached_refresh = coordinator._last_charge_refresh
     reset_api_mocks(coordinator)
 
@@ -323,7 +410,7 @@ async def test_repeated_idle_cycles_skip_legacy_charges(hass, bypass_get_data):
 
     coordinator.api.async_get_charges.assert_not_awaited()
     coordinator.api.async_get_charge_history.assert_not_awaited()
-    assert [charge.id for charge in coordinator.home_charges] == cached_ids
+    assert live_charge_ids(coordinator, "PSL-123456") == cached_ids
     assert coordinator._last_charge_refresh == cached_refresh
 
 
@@ -362,19 +449,17 @@ async def test_idle_reconciliation_merges_short_session_without_duplicates(
     coordinator._last_history_refresh -= coordinator._history_refresh_interval + 1
     await coordinator.async_refresh()
 
-    charge_ids = list(coordinator.completed_charges["PSL-123456"])
+    charge_ids = completed_session_ids(coordinator, "PSL-123456")
     assert charge_ids.count("new-short") == 1
     assert len(charge_ids) == len(set(charge_ids))
 
 
 @pytest.mark.asyncio
-async def test_recent_charge_refresh_progressively_finds_known_ids(
-    hass, bypass_get_data
-):
-    """Recent polling paginates until the previously newest charge is found."""
+async def test_recent_live_charge_refresh_uses_one_bounded_page(hass, bypass_get_data):
+    """Live polling is bounded because completed history is cached separately."""
     coordinator = await subject(hass)
     await coordinator.async_refresh()
-    known_charge = coordinator.home_charges[0]
+    known_charge = coordinator.live_sessions["PSL-123456"][0].raw
     first_page = [
         build_charge(
             charge_id,
@@ -388,14 +473,7 @@ async def test_recent_charge_refresh_progressively_finds_known_ids(
 
     await coordinator.async_refresh()
 
-    assert coordinator.api.async_get_charges.await_count == 2
-    assert [
-        call.kwargs["page"]
-        for call in coordinator.api.async_get_charges.await_args_list
-    ] == [
-        1,
-        2,
-    ]
+    coordinator.api.async_get_charges.assert_awaited_once_with(perpage=3, page=1)
 
 
 @pytest.mark.asyncio
@@ -408,8 +486,8 @@ async def test_live_charge_energy_updates_without_duplication(hass, bypass_get_d
 
     await coordinator.async_refresh()
 
-    assert coordinator.pods[0].current_kwh == 4.8
-    assert [charge.id for charge in coordinator.home_charges].count(1) == 1
+    assert coordinator.metrics["PSL-123456"].current_kwh == 4.8
+    assert live_charge_ids(coordinator, "PSL-123456").count(1) == 1
 
 
 @pytest.mark.asyncio
@@ -423,8 +501,8 @@ async def test_final_charge_refresh_resets_current_energy(hass, bypass_get_data)
 
     await coordinator.async_refresh()
 
-    assert coordinator.pods[0].current_kwh == 0.0
-    assert all(charge.ends_at is not None for charge in coordinator.pods[0].charges)
+    assert coordinator.metrics["PSL-123456"].current_kwh == 0.0
+    assert coordinator.live_sessions["PSL-123456"] == []
 
 
 @pytest.mark.asyncio
@@ -446,13 +524,14 @@ async def test_hybrid_session_transitions_to_canonical_completed_values(
 
     await coordinator.async_refresh()
 
-    pod = coordinator.pods[0]
-    assert pod.current_kwh == 0.6
-    assert pod.total_kwh == 0.6
-    assert pod.total_charge_seconds == 643
-    assert pod.total_cost == 15
-    assert pod.charges[0].starts_at == active.starts_at
-    assert coordinator.completed_charges.get(pod.ppid, {}) == {}
+    charger = coordinator.data[0]
+    metrics = coordinator.metrics[charger.ppid]
+    assert metrics.current_kwh == 0.6
+    assert metrics.total_kwh == 0.6
+    assert metrics.total_charge_seconds == 643
+    assert metrics.total_cost == 15
+    assert coordinator.live_sessions[charger.ppid][0].started_at == active.starts_at
+    assert coordinator.completed_sessions.get(charger.ppid, {}) == {}
 
     set_connectivity_state(coordinator, "Available")
     completed = new_history_charge("new-991")
@@ -472,38 +551,17 @@ async def test_hybrid_session_transitions_to_canonical_completed_values(
 
     await coordinator.async_refresh()
 
-    pod = coordinator.pods[0]
+    charger = coordinator.data[0]
+    metrics = coordinator.metrics[charger.ppid]
     assert coordinator.api.async_get_charge_history.await_count == 1
     assert coordinator.api.async_get_charges.await_count == 1
-    assert list(coordinator.completed_charges[pod.ppid]) == ["new-991"]
-    assert pod.current_kwh == 0.0
-    assert pod.total_kwh == 0.6
-    assert pod.total_charge_seconds == 643
-    assert pod.total_cost == 18
-    assert pod.last_charge_cost == 18
-    assert pod.charge_currency == "GBP"
-    assert pod.ppid not in coordinator.pending_finalisations
-
-
-def test_history_matching_uses_ppid_and_timestamp_tolerance():
-    """Correlation accepts 60 seconds but rejects unrelated times and chargers."""
-    coordinator = SimpleNamespace(_history_match_tolerance=timedelta(seconds=60))
-    provisional = build_charge(
-        701,
-        0.6,
-        starts_at="2026-08-08T11:37:28+01:00",
-    )
-    within = build_new_history(
-        new_history_charge("different-id", plugged_in_at="2026-08-08T11:38:28+01:00")
-    ).charges[0]
-    outside = build_new_history(
-        new_history_charge("other-id", plugged_in_at="2026-08-08T11:38:29+01:00")
-    ).charges[0]
-
-    matcher = PodPointDataUpdateCoordinator._completed_matches_provisional
-    assert matcher(coordinator, "PSL-123456", within, provisional) is True
-    assert matcher(coordinator, "PSL-123456", outside, provisional) is False
-    assert matcher(coordinator, "PSL-654321", within, provisional) is False
+    assert completed_session_ids(coordinator, charger.ppid) == ["new-991"]
+    assert metrics.current_kwh == 0.0
+    assert metrics.total_kwh == 0.6
+    assert metrics.total_charge_seconds == 643
+    assert metrics.total_cost == 18
+    assert metrics.last_charge_cost == 18
+    assert metrics.charge_currency == "GBP"
 
 
 @pytest.mark.asyncio
@@ -521,16 +579,16 @@ async def test_new_history_deduplicates_and_ignores_unfinished_records(
 
     await coordinator.async_refresh()
 
-    cached = coordinator.completed_charges["PSL-123456"]
-    assert list(cached) == ["new-1"]
-    assert cached["new-1"].energy_total == 0.7
+    cached = coordinator.completed_sessions["PSL-123456"]
+    assert completed_session_ids(coordinator, "PSL-123456") == ["new-1"]
+    assert next(iter(cached.values())).energy_kwh == 0.7
 
 
 @pytest.mark.asyncio
 async def test_unsupported_new_history_falls_back_to_complete_legacy_history(
     hass, bypass_get_data
 ):
-    """A confirmed history 404 preserves legacy completed-history semantics."""
+    """The domain API owns fallback when Home history is unsupported."""
     coordinator = await subject(hass)
     set_connectivity_state(coordinator, "Available")
     coordinator.api.async_get_charge_history.side_effect = APIError(
@@ -539,10 +597,10 @@ async def test_unsupported_new_history_falls_back_to_complete_legacy_history(
 
     await coordinator.async_refresh()
 
-    assert coordinator._new_history_supported is False
-    coordinator.api.async_get_all_charges.assert_awaited_once_with(perpage=50)
-    assert len(coordinator.pods[0].charges) == 9
-    assert coordinator.pods[0].last_charge_cost == 116
+    coordinator.api.async_get_all_charges.assert_awaited_once_with()
+    assert len(coordinator.completed_sessions["PSL-123456"]) == 9
+    assert len(coordinator.live_sessions["PSL-123456"]) == 1
+    assert coordinator.metrics["PSL-123456"].last_charge_cost == 116
 
 
 @pytest.mark.asyncio
@@ -553,7 +611,7 @@ async def test_failed_new_history_refresh_preserves_completed_cache(
     coordinator = await subject(hass)
     set_connectivity_state(coordinator, "Available")
     await coordinator.async_refresh()
-    cached = coordinator.completed_charges["PSL-123456"].copy()
+    cached = coordinator.completed_sessions["PSL-123456"].copy()
     coordinator._last_history_refresh -= coordinator._history_refresh_interval + 1
     coordinator.api.async_get_charge_history.side_effect = APIError(
         503, "response omitted"
@@ -562,12 +620,14 @@ async def test_failed_new_history_refresh_preserves_completed_cache(
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
 
-    assert coordinator.completed_charges["PSL-123456"] == cached
+    assert coordinator.completed_sessions["PSL-123456"] == cached
 
 
 @pytest.mark.asyncio
-async def test_pending_finalisation_uses_bounded_fast_retry(hass, bypass_get_data):
-    """An unpublished completion retries after backoff rather than every cycle."""
+async def test_pending_finalisation_reconciles_on_history_cadence(
+    hass, bypass_get_data
+):
+    """An unpublished completion is retained until the next reconciliation."""
     coordinator = await subject(hass)
     active = build_charge(
         701,
@@ -583,15 +643,13 @@ async def test_pending_finalisation_uses_bounded_fast_retry(hass, bypass_get_dat
 
     await coordinator.async_refresh()
     coordinator.api.async_get_charge_history.assert_awaited_once()
-    assert "PSL-123456" in coordinator.pending_finalisations
+    assert "PSL-123456" in coordinator.pending_sessions
 
     coordinator.api.async_get_charge_history.reset_mock()
     await coordinator.async_refresh()
     coordinator.api.async_get_charge_history.assert_not_awaited()
 
-    coordinator._finalisation_retry_after["PSL-123456"] -= (
-        coordinator._history_retry_interval + 1
-    )
+    coordinator._last_history_refresh -= coordinator._history_refresh_interval + 1
     await coordinator.async_refresh()
     coordinator.api.async_get_charge_history.assert_awaited_once()
 
@@ -608,11 +666,15 @@ async def test_multiple_chargers_keep_charge_attribution(hass, bypass_get_data):
     coordinator.api.async_get_all_pods.return_value = pods
     coordinator.api.async_get_charges.return_value = []
     coordinator.api.async_get_chargers.return_value = [
-        SimpleNamespace(
-            ppid=pod.ppid,
-            unit_id=pod.unit_id,
-            linked_at=pod.commissioned_at,
-            delegated_control_status="INACTIVE",
+        Charger(
+            {
+                "ppid": pod.ppid,
+                "unitId": pod.unit_id,
+                "linkedAt": pod.commissioned_at.isoformat(),
+                "timezone": pod.timezone,
+                "delegatedControl": {"status": "INACTIVE"},
+                "modelInfo": {"style": pod.model.name},
+            }
         )
         for pod in pods
     ]
@@ -626,13 +688,12 @@ async def test_multiple_chargers_keep_charge_attribution(hass, bypass_get_data):
 
     await coordinator.async_refresh()
 
-    by_ppid = {pod.ppid: pod for pod in coordinator.pods}
-    assert list(coordinator.completed_charges["PSL-123456"]) == ["new-101"]
-    assert list(coordinator.completed_charges["PSL-654321"]) == ["new-102"]
-    assert by_ppid["PSL-123456"].charges == []
-    assert by_ppid["PSL-654321"].charges == []
-    assert by_ppid["PSL-123456"].total_kwh == 1.5
-    assert by_ppid["PSL-654321"].total_kwh == 2.5
+    assert completed_session_ids(coordinator, "PSL-123456") == ["new-101"]
+    assert completed_session_ids(coordinator, "PSL-654321") == ["new-102"]
+    assert coordinator.live_sessions["PSL-123456"] == []
+    assert coordinator.live_sessions["PSL-654321"] == []
+    assert coordinator.metrics["PSL-123456"].total_kwh == 1.5
+    assert coordinator.metrics["PSL-654321"].total_kwh == 2.5
 
 
 @pytest.mark.asyncio
@@ -642,14 +703,14 @@ async def test_failed_live_charge_refresh_preserves_cached_history(
     """A failed live refresh leaves the last good history and cadence untouched."""
     coordinator = await subject(hass)
     await coordinator.async_refresh()
-    cached_ids = [charge.id for charge in coordinator.home_charges]
+    cached_ids = live_charge_ids(coordinator, "PSL-123456")
     cached_refresh = coordinator._last_charge_refresh
     coordinator.api.async_get_charges.side_effect = ApiConnectionError("temporary")
 
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
 
-    assert [charge.id for charge in coordinator.home_charges] == cached_ids
+    assert live_charge_ids(coordinator, "PSL-123456") == cached_ids
     assert coordinator._last_charge_refresh == cached_refresh
 
 
@@ -706,18 +767,18 @@ async def test_unsupported_fast_endpoint_is_negatively_cached(hass, bypass_get_d
 
 
 @pytest.mark.asyncio
-async def test_home_charger_does_not_use_legacy_pod_or_connectivity(
+async def test_home_charger_uses_domain_history_identity_resolution(
     hass, bypass_get_data
 ):
-    """Home charger discovery and connectivity do not depend on legacy reads."""
+    """Only domain history identity resolution performs the legacy Pod read."""
     coordinator = await subject(hass)
 
     await coordinator.async_refresh()
 
-    coordinator.api.async_get_all_pods.assert_not_awaited()
+    coordinator.api.async_get_all_pods.assert_awaited_once_with()
     coordinator.api.async_get_connectivity_status.assert_not_awaited()
-    assert coordinator.pods[0].ppid == "PSL-123456"
-    assert coordinator.pods[0].unit_id == 123456
+    assert coordinator.data[0].ppid == "PSL-123456"
+    assert coordinator.data[0].unit_id == 123456
 
 
 @pytest.mark.asyncio
@@ -737,8 +798,8 @@ async def test_removed_legacy_account_and_live_history_do_not_fail_home_charger(
 
     assert [pod.ppid for pod in pods] == ["PSL-123456"]
     assert coordinator.user is None
-    assert coordinator._legacy_charges_supported is False
-    assert coordinator._new_history_supported is True
+    assert coordinator.live_sessions == {}
+    assert len(coordinator.completed_sessions["PSL-123456"]) == 8
 
 
 @pytest.mark.asyncio
@@ -754,7 +815,7 @@ async def test_removed_home_connectivity_does_not_fall_back_to_legacy(
     await coordinator.async_refresh()
 
     coordinator.api.async_get_connectivity_status.assert_not_awaited()
-    assert coordinator.connectivity_v2["PSL-123456"] is None
+    assert "PSL-123456" not in coordinator.charger_states
 
 
 @pytest.mark.asyncio
@@ -881,25 +942,25 @@ async def test_coordinator_refresh_unexpected_exception(hass, error_on_get_data)
 async def test_firmware_repairs_are_scoped_per_pod(hass):
     """Firmware repair issues for one charger must not replace another's."""
     coordinator = await subject_with_data(hass)
-    pod = coordinator.pods[0]
-    firmware = pod.firmware
+    charger = coordinator.data[0]
+    firmware = coordinator.firmware[charger.ppid]
     firmware.update_status.is_update_available = True
 
     with patch(
         "custom_components.pod_point.coordinator.ir.async_create_issue"
     ) as create_issue:
         coordinator._PodPointDataUpdateCoordinator__process_repair_notification(
-            hass, firmware, pod
+            hass, firmware, charger.ppid
         )
 
-    assert create_issue.call_args.args[2] == f"firmware_update_{pod.ppid}"
+    assert create_issue.call_args.args[2] == f"firmware_update_{charger.ppid}"
 
     firmware.update_status.is_update_available = False
     with patch(
         "custom_components.pod_point.coordinator.ir.async_delete_issue"
     ) as delete_issue:
         coordinator._PodPointDataUpdateCoordinator__process_repair_notification(
-            hass, firmware, pod
+            hass, firmware, charger.ppid
         )
 
-    assert delete_issue.call_args.args[2] == f"firmware_update_{pod.ppid}"
+    assert delete_issue.call_args.args[2] == f"firmware_update_{charger.ppid}"

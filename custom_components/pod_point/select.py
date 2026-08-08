@@ -1,8 +1,14 @@
 """Select controls for Pod Home smart-charging preferences."""
 
 from math import isclose
+from typing import ClassVar
 
 from homeassistant.components.select import SelectEntity
+from podpointclient.domain import (
+    BasicChargingMode,
+    CapabilitySupport,
+    ChargerCapability,
+)
 
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
@@ -22,7 +28,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities = []
         for index, pod in enumerate(coordinator.data):
             candidates = []
-            if pod.ppid in coordinator.chargers:
+            if (
+                pod.capability(ChargerCapability.BASIC_CHARGING_MODE)
+                is not CapabilitySupport.UNSUPPORTED
+            ):
                 candidates.append(("basic_mode", PodPointBasicChargingModeSelect))
             if coordinator.smart_charging_preferences.get(
                 pod.ppid
@@ -62,7 +71,10 @@ class PodPointSmartChargingPrioritySelect(PodPointEntity, SelectEntity):
     _attr_has_entity_name = True
     _attr_name = "Smart charging priority"
     _attr_icon = "mdi:car-clock"
-    _attr_options = [PRIORITISE_COMPLETE_CHARGE, PRIORITISE_LOWEST_COST]
+    _attr_options: ClassVar[list[str]] = [
+        PRIORITISE_COMPLETE_CHARGE,
+        PRIORITISE_LOWEST_COST,
+    ]
 
     @property
     def unique_id(self):
@@ -70,8 +82,8 @@ class PodPointSmartChargingPrioritySelect(PodPointEntity, SelectEntity):
 
     @property
     def current_option(self):
-        preferences = self.coordinator.smart_charging_preferences.get(self.pod.ppid)
-        prices = _tariff_prices(self.coordinator, self.pod.ppid)
+        preferences = self.coordinator.smart_charging_preferences.get(self.charger.ppid)
+        prices = _tariff_prices(self.coordinator, self.charger.ppid)
         if preferences is None or preferences.max_price is None or not prices:
             return None
         if isclose(preferences.max_price, min(prices), rel_tol=1e-6, abs_tol=1e-6):
@@ -85,9 +97,9 @@ class PodPointSmartChargingPrioritySelect(PodPointEntity, SelectEntity):
         return super().available and self.smart_charging_active
 
     async def async_select_option(self, option: str) -> None:
-        prices = _tariff_prices(self.coordinator, self.pod.ppid)
+        prices = _tariff_prices(self.coordinator, self.charger.ppid)
         price = min(prices) if option == PRIORITISE_LOWEST_COST else max(prices)
-        charger = self.coordinator.chargers[self.pod.ppid]
+        charger = self.charger
         await self.coordinator.async_set_smart_charging_max_price(charger, price)
 
 
@@ -97,7 +109,10 @@ class PodPointBasicChargingModeSelect(PodPointEntity, SelectEntity):
     _attr_has_entity_name = True
     _attr_name = "Basic charging mode"
     _attr_icon = "mdi:calendar-clock"
-    _attr_options = [BASIC_MODE_SCHEDULED, BASIC_MODE_ALWAYS_ON]
+    _attr_options: ClassVar[list[str]] = [
+        BASIC_MODE_SCHEDULED,
+        BASIC_MODE_ALWAYS_ON,
+    ]
 
     @property
     def unique_id(self):
@@ -105,42 +120,38 @@ class PodPointBasicChargingModeSelect(PodPointEntity, SelectEntity):
 
     @property
     def current_option(self):
-        overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
-        if overrides is None:
+        mode = self.coordinator.basic_charging_modes.get(self.charger.ppid)
+        if mode is None or mode is BasicChargingMode.TIMED_BOOST:
             return None
-        if any(override.end_at is not None for override in overrides):
-            # A timed boost is neither of the persistent basic modes.
-            return None
-        if any(override.end_at is None for override in overrides):
+        if mode is BasicChargingMode.ALWAYS_ON:
             return BASIC_MODE_ALWAYS_ON
-        return BASIC_MODE_SCHEDULED
+        if mode is BasicChargingMode.SCHEDULED:
+            return BASIC_MODE_SCHEDULED
+        return None
 
     @property
     def available(self) -> bool:
-        overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
+        mode = self.coordinator.basic_charging_modes.get(self.charger.ppid)
         return (
             super().available
-            and getattr(
-                self.coordinator.chargers.get(self.pod.ppid),
-                "delegated_control_status",
-                None,
-            )
+            and self.coordinator.smart_charging_states.get(self.charger.ppid)
             is not None
             and not self.smart_charging_active
-            and overrides is not None
-            and not any(override.end_at is not None for override in overrides)
+            and mode is not None
+            and mode is not BasicChargingMode.TIMED_BOOST
         )
 
     async def async_select_option(self, option: str) -> None:
-        charger = self.coordinator.chargers[self.pod.ppid]
-        if option == BASIC_MODE_ALWAYS_ON:
-            result = await self.coordinator.async_api_call(
-                self.coordinator.api.async_set_charger_charge_mode_always_on(charger)
-            )
-            succeeded = result is not None
-        else:
-            succeeded = await self.coordinator.async_api_call(
-                self.coordinator.api.async_set_charger_charge_mode_scheduled(charger)
-            )
+        charger = self.charger
+        mode = (
+            BasicChargingMode.ALWAYS_ON
+            if option == BASIC_MODE_ALWAYS_ON
+            else BasicChargingMode.SCHEDULED
+        )
+        result = await self.coordinator.async_api_call(
+            self.coordinator.api.async_set_basic_charging_mode(charger, mode)
+        )
+        succeeded = result is not None
         if succeeded:
+            self.coordinator.basic_charging_modes[self.charger.ppid] = result
             await self.coordinator.async_request_refresh()

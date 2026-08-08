@@ -2,12 +2,12 @@
 
 from unittest.mock import patch
 
+import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.service_info import dhcp
 from podpointclient.errors import ApiConnectionError
-import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point.const import (
@@ -35,12 +35,15 @@ DHCP_SERVICE_INFO = dhcp.DhcpServiceInfo(
 @pytest.fixture(autouse=True)
 def bypass_setup_fixture():
     """Prevent setup."""
-    with patch(
-        "custom_components.pod_point.async_setup",
-        return_value=True,
-    ), patch(
-        "custom_components.pod_point.async_setup_entry",
-        return_value=True,
+    with (
+        patch(
+            "custom_components.pod_point.async_setup",
+            return_value=True,
+        ),
+        patch(
+            "custom_components.pod_point.async_setup_entry",
+            return_value=True,
+        ),
     ):
         yield
 
@@ -147,7 +150,7 @@ async def test_config_flow_connection_error(hass):
     )
 
     with patch(
-        "podpointclient.client.PodPointClient.async_credentials_verified",
+        "podpointclient.client.PodPointClient.async_charger_credentials_verified",
         side_effect=ApiConnectionError("connection failed"),
     ):
         result = await hass.config_entries.flow.async_configure(
@@ -224,7 +227,7 @@ async def test_dhcp_login_error(hass: HomeAssistant, bypass_get_data) -> None:
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "user"
     with patch(
-        "podpointclient.client.PodPointClient.async_credentials_verified",
+        "podpointclient.client.PodPointClient.async_charger_credentials_verified",
         return_value=False,
     ):
         result = await hass.config_entries.flow.async_configure(

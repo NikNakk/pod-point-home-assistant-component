@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -15,8 +15,10 @@ from homeassistant.core import callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from podpointclient.charge_mode import ChargeMode
-from podpointclient.charge_override import ChargeOverride
-from podpointclient.pod import Pod
+from podpointclient.domain import (
+    AccountCapability,
+    CapabilitySupport,
+)
 from podpointclient.user import User
 
 from .const import (
@@ -46,6 +48,20 @@ from .entity import PodPointEntity
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
 
+def _boost_attributes(boost) -> dict[str, Any] | None:
+    """Return stable attributes from a canonical boost state."""
+    if boost is None or not boost.active:
+        return None
+    return {
+        "active": boost.active,
+        "timed": boost.timed,
+        "requested_at": boost.requested_at,
+        "started_at": boost.started_at,
+        "ends_at": boost.ends_at,
+        "source_id": boost.source_id,
+    }
+
+
 async def async_setup_entry(hass, entry, async_add_devices):
     """Setup sensor platform."""
     coordinator: PodPointDataUpdateCoordinator = entry.runtime_data
@@ -59,14 +75,22 @@ async def async_setup_entry(hass, entry, async_add_devices):
                 ("charge_time", PodPointChargeTimeSensor),
                 ("total_energy", PodPointTotalEnergySensor),
                 ("current_energy", PodPointCurrentEnergySensor),
-                ("signal_strength", PodPointSignalStrengthSensor),
                 ("last_message", PodPointLastMessageReceivedSensor),
                 ("total_cost", PodPointTotalCostSensor),
                 ("last_charge_cost", PodPointLastCompleteChargeCostSensor),
                 ("charge_mode", PodPointChargeModeEntity),
                 ("charge_override", PodPointChargeOverrideEntity),
             ]
-            if coordinator.connectivity_v2.get(pod.ppid) is not None:
+            charger_state = coordinator.charger_states.get(pod.ppid)
+            if (
+                charger_state is not None
+                and charger_state.signal_strength_dbm is not None
+            ):
+                candidates.insert(4, ("signal_strength", PodPointSignalStrengthSensor))
+            if (
+                charger_state is not None
+                and charger_state.connection_quality is not None
+            ):
                 candidates.append(
                     ("connection_quality", PodPointConnectionQualitySensor)
                 )
@@ -119,7 +143,7 @@ class PodPointSensor(
 ):
     """pod_point Sensor class."""
 
-    _attr_options = [
+    _attr_options: ClassVar[list[str]] = [
         ATTR_STATE_AVAILABLE,
         ATTR_STATE_UNAVAILABLE,
         ATTR_STATE_CHARGING,
@@ -187,19 +211,17 @@ class PodPointChargeTimeSensor(
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
-            "raw": self.pod.total_charge_seconds,
-            "formatted": str(timedelta(seconds=self.pod.total_charge_seconds)),
-            "long": self._td_format(timedelta(seconds=self.pod.total_charge_seconds)),
+            "raw": self.metrics.total_charge_seconds,
+            "formatted": str(timedelta(seconds=self.metrics.total_charge_seconds)),
+            "long": self._td_format(
+                timedelta(seconds=self.metrics.total_charge_seconds)
+            ),
         }
 
     @property
     def native_value(self):
         """Return the native value of the sensor."""
         return self.extra_state_attributes["raw"]
-
-    @property
-    def entity_picture(self) -> str:
-        return None
 
 
 class PodPointSignalStrengthSensor(
@@ -252,10 +274,10 @@ class PodPointSignalStrengthSensor(
 
     @property
     def available(self) -> bool:
-        """Legacy RSSI is not supplied by the Pod Home connectivity endpoint."""
-        return (
-            super().available
-            and self.coordinator.connectivity_v2.get(self.pod.ppid) is None
+        """Return whether this wire API supplies RSSI diagnostics."""
+        state = self.coordinator.charger_states.get(self.charger.ppid)
+        return super().available and bool(
+            state and state.signal_strength_dbm is not None
         )
 
     @property
@@ -274,55 +296,14 @@ class PodPointSignalStrengthSensor(
 
         return icon
 
-    @property
-    def entity_picture(self) -> str:
-        return None
-
     def __signal_strength(self) -> int:
-        has_connectivity_status = self.pod.connectivity_status is not None
-        has_evse = (
-            has_connectivity_status
-            and self.pod.connectivity_status.evses[0] is not None
-        )
-        has_connectivity_state = (
-            has_evse
-            and self.pod.connectivity_status.evses[0].connectivity_state is not None
-        )
-        has_signal_strength = (
-            has_connectivity_state
-            and self.pod.connectivity_status.evses[0].connectivity_state.signal_strength
-            is not None
-        )
-
-        return (
-            self.pod.connectivity_status.evses[0].connectivity_state.signal_strength
-            if has_signal_strength
-            else 0
-        )
+        state = self.coordinator.charger_states.get(self.charger.ppid)
+        return state.signal_strength_dbm if state and state.signal_strength_dbm else 0
 
     def __connection_quality(self) -> int:
-        has_connectivity_status = self.pod.connectivity_status is not None
-        has_evse = (
-            has_connectivity_status
-            and self.pod.connectivity_status.evses[0] is not None
-        )
-        has_connectivity_state = (
-            has_evse
-            and self.pod.connectivity_status.evses[0].connectivity_state is not None
-        )
-        has_connection_quality = (
-            has_connectivity_state
-            and self.pod.connectivity_status.evses[
-                0
-            ].connectivity_state.connection_quality
-            is not None
-        )
-
-        return (
-            self.pod.connectivity_status.evses[0].connectivity_state.connection_quality
-            if has_connection_quality
-            else 0
-        )
+        state = self.coordinator.charger_states.get(self.charger.ppid)
+        diagnostic = state.connection_quality if state is not None else None
+        return diagnostic.raw if diagnostic and diagnostic.raw is not None else 0
 
 
 class PodPointConnectionQualitySensor(PodPointEntity, SensorEntity):
@@ -339,8 +320,15 @@ class PodPointConnectionQualitySensor(PodPointEntity, SensorEntity):
 
     @property
     def native_value(self):
-        status = self.coordinator.connectivity_v2.get(self.pod.ppid)
-        return status.connection_quality if status is not None else None
+        state = self.coordinator.charger_states.get(self.charger.ppid)
+        diagnostic = state.connection_quality if state is not None else None
+        return diagnostic.raw if diagnostic is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        state = self.coordinator.charger_states.get(self.charger.ppid)
+        diagnostic = state.connection_quality if state is not None else None
+        return {"source": diagnostic.source.value} if diagnostic is not None else {}
 
 
 class PodPointLastMessageReceivedSensor(
@@ -369,7 +357,7 @@ class PodPointLastMessageReceivedSensor(
         attrs = {
             "attribution": ATTRIBUTION,
             "integration": DOMAIN,
-            "last_message_received": self.pod.last_message_at,
+            "last_message_received": self.last_message_at,
         }
 
         self.extra_attrs = attrs
@@ -391,17 +379,10 @@ class PodPointLastMessageReceivedSensor(
     def icon(self):
         return "mdi:message-text-clock"
 
-    @property
-    def entity_picture(self) -> str:
-        return None
 
-
-class PodPointTotalEnergySensor(PodPointSensor):
+class PodPointTotalEnergySensor(PodPointEntity, SensorEntity):
     """pod_point total energy Sensor class."""
 
-    # Override the options from PodPointSensor, prevents an error as this sensor is an 'energy' type
-    _attr_options = None
-    _attr_translation_key = None
     _attr_has_entity_name = True
     _attr_name = "Total Energy"
     _attr_device_class = SensorDeviceClass.ENERGY
@@ -410,7 +391,7 @@ class PodPointTotalEnergySensor(PodPointSensor):
 
     def __init__(self, coordinator, config_entry: ConfigEntry, idx: int):
         super().__init__(coordinator, config_entry=config_entry, idx=idx)
-        self.previous_total = self.pod.total_kwh
+        self.previous_total = self.metrics.total_kwh
         self.total_kwh_diff = self.previous_total
 
     @callback
@@ -420,20 +401,19 @@ class PodPointTotalEnergySensor(PodPointSensor):
         self.async_write_ha_state()
 
     def __update_attrs(self):
-        pod: Pod = self.pod
-
-        new_total = self.pod.total_kwh
+        charger = self.charger
+        new_total = self.metrics.total_kwh
         self.total_kwh_diff = new_total - self.previous_total
         self.previous_total = new_total
 
         attrs = {
             "attribution": ATTRIBUTION,
-            "id": pod.id,
+            "id": charger.unit_id,
             "integration": DOMAIN,
             "suggested_area": "Outside",
-            "total_kwh": pod.total_kwh,
+            "total_kwh": self.metrics.total_kwh,
             "total_kwh_difference": self.total_kwh_diff,
-            "current_kwh": pod.current_kwh,
+            "current_kwh": self.metrics.current_kwh,
         }
 
         self.extra_attrs = attrs
@@ -445,11 +425,12 @@ class PodPointTotalEnergySensor(PodPointSensor):
 
     @property
     def unique_id(self):
-        return f"{super().unique_id}_total_energy"
+        # Retain the historical ID created through PodPointSensor inheritance.
+        return f"{super().unique_id}_status_total_energy"
 
     @property
     def native_value(self) -> float:
-        return self.pod.total_kwh
+        return self.metrics.total_kwh
 
     @property
     def icon(self):
@@ -459,15 +440,6 @@ class PodPointTotalEnergySensor(PodPointSensor):
             icon = "mdi:lightning-bolt"
 
         return icon
-
-    @property
-    def entity_picture(self) -> str:
-        return None
-
-    @property
-    def is_on(self) -> bool:
-        """This sensor is on when the given pod is connected to a vehicle"""
-        return self.connected
 
 
 class PodPointCurrentEnergySensor(PodPointTotalEnergySensor):
@@ -483,21 +455,21 @@ class PodPointCurrentEnergySensor(PodPointTotalEnergySensor):
 
     @property
     def native_value(self) -> float:
-        return self.pod.current_kwh
+        return self.metrics.current_kwh
 
     @property
     def available(self) -> bool:
         return (
             super().available
-            and self.coordinator._legacy_charges_supported is not False
+            and self.coordinator.api.domain.account_capability(
+                AccountCapability.LEGACY_CHARGES
+            )
+            is not CapabilitySupport.UNSUPPORTED
         )
 
     @property
     def last_reset(self) -> datetime | None:
-        active_charge = next(
-            (charge for charge in self.pod.charges if charge.ends_at is None), None
-        )
-        return active_charge.starts_at if active_charge is not None else None
+        return self.metrics.active_started_at
 
     @property
     def icon(self):
@@ -515,7 +487,11 @@ class PodPointChargeModeEntity(
 ):
     """pod_point charge mode sensor class."""
 
-    _attr_options = [ChargeMode.MANUAL, ChargeMode.SMART, ChargeMode.OVERRIDE]
+    _attr_options: ClassVar[list[ChargeMode]] = [
+        ChargeMode.MANUAL,
+        ChargeMode.SMART,
+        ChargeMode.OVERRIDE,
+    ]
     _attr_has_entity_name = True
     _attr_name = "Charge Mode"
     _attr_device_class = SensorDeviceClass.ENUM
@@ -527,31 +503,13 @@ class PodPointChargeModeEntity(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        charge_override = None
-        if self.pod.charge_override is not None:
-            charge_override = self.pod.charge_override.dict
-
-        return {"charge_override": charge_override}
+        boost = self.coordinator.boost_states.get(self.charger.ppid)
+        return {"charge_override": _boost_attributes(boost)}
 
     @property
     def native_value(self):
         """Return the native value of the sensor."""
-        if self.pod.ppid in self.coordinator.chargers:
-            if self.smart_charging_active:
-                return ChargeMode.SMART
-            overrides = self.coordinator.charge_overrides.get(self.pod.ppid)
-            if overrides is None:
-                return None
-            if any(override.end_at is not None for override in overrides):
-                return ChargeMode.OVERRIDE
-            if any(override.end_at is None for override in overrides):
-                return ChargeMode.MANUAL
-            return ChargeMode.SMART
-        return self.pod.charge_mode
-
-    @property
-    def entity_picture(self) -> str:
-        return None
+        return self.charge_mode
 
 
 class PodPointChargeOverrideEntity(
@@ -571,36 +529,14 @@ class PodPointChargeOverrideEntity(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        charge_override = None
-        if self.pod.charge_override is not None:
-            charge_override = self.pod.charge_override.dict
-
-        return {"charge_override": charge_override}
+        boost = self.coordinator.boost_states.get(self.charger.ppid)
+        return {"charge_override": _boost_attributes(boost)}
 
     @property
     def native_value(self):
         """Return the native value of the sensor."""
-        overrides = self.coordinator.charge_overrides.get(self.pod.ppid, [])
-        if overrides:
-            return max(
-                (
-                    override.end_at
-                    for override in overrides
-                    if override.end_at is not None
-                ),
-                default=None,
-            )
-
-        value = None
-        override: ChargeOverride = self.pod.charge_override
-        if override is not None:
-            value = override.ends_at
-
-        return value
-
-    @property
-    def entity_picture(self) -> str:
-        return None
+        boost = self.coordinator.boost_states.get(self.charger.ppid)
+        return boost.ends_at if boost and boost.active and boost.timed else None
 
 
 class PodPointTotalCostSensor(
@@ -622,7 +558,7 @@ class PodPointTotalCostSensor(
     def currency(self) -> str:
         """Which currency type are we returning?"""
 
-        if currency := getattr(self.pod, "charge_currency", None):
+        if currency := self.metrics.charge_currency:
             return currency
 
         # TODO - Should use the default currency from HA here
@@ -635,10 +571,10 @@ class PodPointTotalCostSensor(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        cost_as_pounds = self.pod.total_cost / 100
+        cost_as_pounds = self.metrics.total_cost / 100
 
         return {
-            "raw": self.pod.total_cost,
+            "raw": self.metrics.total_cost,
             "amount": cost_as_pounds,
             "currency": self.currency,
             "formatted": f"{cost_as_pounds} {self.currency}",
@@ -653,10 +589,6 @@ class PodPointTotalCostSensor(
     def native_unit_of_measurement(self):
         """Return the unit for this sensor."""
         return self.extra_state_attributes["currency"]
-
-    @property
-    def entity_picture(self) -> str:
-        return None
 
 
 class PodPointLastCompleteChargeCostSensor(
@@ -678,7 +610,7 @@ class PodPointLastCompleteChargeCostSensor(
     def currency(self) -> str:
         """Which currency type are we returning?"""
 
-        if currency := getattr(self.pod, "charge_currency", None):
+        if currency := self.metrics.charge_currency:
             return currency
 
         try:
@@ -693,8 +625,8 @@ class PodPointLastCompleteChargeCostSensor(
         raw = 0
         cost_as_pounds = 0.0
 
-        if getattr(self.pod, "last_charge_cost", None) is not None:
-            raw = getattr(self.pod, "last_charge_cost", None)
+        if self.metrics.last_charge_cost is not None:
+            raw = self.metrics.last_charge_cost
             cost_as_pounds = raw / 100
 
         return {
@@ -713,10 +645,6 @@ class PodPointLastCompleteChargeCostSensor(
     def native_unit_of_measurement(self):
         """Return the unit for this sensor."""
         return self.extra_state_attributes["currency"]
-
-    @property
-    def entity_picture(self) -> str:
-        return None
 
 
 class PodPointAccountBalanceEntity(CoordinatorEntity, SensorEntity):
@@ -905,7 +833,7 @@ class PodPointCheapestTariffSensor(PodPointEntity, SensorEntity):
     def native_value(self):
         prices = [
             tariff.cheapest_unit_price
-            for tariff in self.coordinator.tariffs.get(self.pod.ppid, [])
+            for tariff in self.coordinator.tariffs.get(self.charger.ppid, [])
             if tariff.cheapest_unit_price is not None
         ]
         return min(prices) if prices else None
@@ -929,7 +857,7 @@ class PodPointSmartChargingMaxPriceSensor(PodPointEntity, SensorEntity):
 
     @property
     def native_value(self):
-        preferences = self.coordinator.smart_charging_preferences.get(self.pod.ppid)
+        preferences = self.coordinator.smart_charging_preferences.get(self.charger.ppid)
         return preferences.max_price if preferences is not None else None
 
     @property
@@ -957,7 +885,7 @@ class PodPointVehicleBatterySensor(PodPointEntity, SensorEntity):
 
     @property
     def vehicle_link(self):
-        delegated = self.coordinator.delegated_vehicles.get(self.pod.ppid)
+        delegated = self.coordinator.delegated_vehicles.get(self.charger.ppid)
         if delegated is None or not delegated.vehicles:
             return None
         return next(

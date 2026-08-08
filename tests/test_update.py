@@ -44,7 +44,9 @@ async def test_update_sensor(hass, bypass_get_data):
     assert "A30P-3.1.22-00001" == update.latest_version
     assert "PSL-123456 is up to date!" == update.release_notes()
 
-    update.pod.firmware.update_status.is_update_available = True
+    update.coordinator.firmware[
+        update.charger.ppid
+    ].update_status.is_update_available = True
     assert "A30P-3.1.22-00001_UPDATE_AVAILABLE" == update.latest_version
     assert (
         "A firmware update is available for PSL-123456.\n\nExternal updating is not supported by the PodPoint APIs, please check the PodPoint mobile app for next steps."
