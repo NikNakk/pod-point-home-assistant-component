@@ -20,6 +20,7 @@ from podpointclient.domain import (
     BasicChargingMode,
     BoostState,
     ChargerRef,
+    ChargerSchedule,
     ChargerState,
     ChargeSession,
     reconcile_charge_sessions,
@@ -32,7 +33,6 @@ from podpointclient.errors import (
     UnsupportedCapabilityError,
 )
 from podpointclient.pod import Firmware
-from podpointclient.schedule import Schedule
 from podpointclient.user import User
 
 from .const import DOMAIN
@@ -102,7 +102,7 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
         self.reward_wallet: Any = None
         self.basic_charging_modes: dict[str, BasicChargingMode | None] = {}
         self.smart_charging_states: dict[str, Any] = {}
-        self.legacy_schedules: dict[str, list[Schedule]] = {}
+        self.schedules: dict[str, list[ChargerSchedule]] = {}
         self._last_hourly_refresh: float | None = None
         self._last_remote_lock_refresh: float | None = None
         self._last_firmware_refresh: float | None = None
@@ -442,7 +442,7 @@ If this issue persists, please contact the developer."
             self.delegated_vehicles,
             self.basic_charging_modes,
             self.smart_charging_states,
-            self.legacy_schedules,
+            self.schedules,
             self.completed_sessions,
             self.live_sessions,
             self.pending_sessions,
@@ -523,7 +523,7 @@ If this issue persists, please contact the developer."
 
         for charger in chargers:
             ppid = charger.ppid
-            state, boost, smart_charging, legacy_schedules = await asyncio.gather(
+            state, boost, smart_charging, schedules = await asyncio.gather(
                 self.__async_domain_optional(
                     lambda charger=charger: self.api.async_get_charger_state(charger),
                     None,
@@ -542,11 +542,11 @@ If this issue persists, please contact the developer."
                     f"smart charging for {ppid}",
                 ),
                 self.__async_domain_optional(
-                    lambda charger=charger: self.api.async_get_charger_legacy_schedules(
+                    lambda charger=charger: self.api.async_get_charger_schedules(
                         charger
                     ),
                     None,
-                    f"legacy schedules for {ppid}",
+                    f"schedules for {ppid}",
                 ),
             )
             if state is None:
@@ -572,10 +572,10 @@ If this issue persists, please contact the developer."
                 self.smart_charging_states.pop(ppid, None)
             else:
                 self.smart_charging_states[ppid] = smart_charging
-            if legacy_schedules is None:
-                self.legacy_schedules.pop(ppid, None)
+            if schedules is None:
+                self.schedules.pop(ppid, None)
             else:
-                self.legacy_schedules[ppid] = legacy_schedules
+                self.schedules[ppid] = schedules
 
             slow_updates = []
             if (

@@ -18,6 +18,12 @@ remote off-mode, and rewards. The older Pod Point API is retained only as a
 limited compatibility fallback for accounts or chargers that are not yet
 available through the Home API.
 
+> **Fork status:** This repository is not included in the default HACS catalog;
+> install it by adding `https://github.com/NikNakk/pod-point-home-assistant-component`
+> as a custom Integration repository. If these changes are merged into the
+> [upstream integration][pod_point], this fork will be deprecated in favour of
+> upstream and users should migrate back to it.
+
 > **NOTE:** PodPoint have made changes to their authentication system in June 2023 which may result in existing connections reporting Invalid Credentials, and users being unable to log in again with their existing password. 
 > This can be fixed by going to https://charge.pod-point.com/login and reseting your password, and then re-authenticate with the integration.
 
@@ -58,6 +64,7 @@ Service | Description | Parameters
 --- | --- | ---
 `pod_point.charge_now` | Start a timed charger boost | `device_id` or `config_entry_id`, plus at least one of `hours` (0–24), `minutes` (0–59), or `seconds` (0–59)
 `pod_point.stop_charge_now` | Stop the active charger boost | `device_id` or `config_entry_id`
+`pod_point.set_schedule` | Replace the complete seven-day basic-mode schedule | `device_id` or `config_entry_id`, plus seven entries in `schedules`; smart charging must be inactive
 
 These services create and remove Pod Home charger boosts. They use the legacy
 charge-override endpoint only for a charger that is unavailable through the Home
@@ -79,9 +86,16 @@ next boost and does not alter the current boost.
 
 ### HACS (recommended)
 
-You can install this component via HACS by searching for 'Pod Point' and then install it from the main HACS integration screen.
+This fork is not a default HACS repository. Add it as a custom repository first:
 
-_Note: You will need to restart before you can install Pod Point via the UI._ Within Home Assistant go to "Configuration" -> "Integrations" click "+" and search for "Pod Point".
+1. Open HACS and select **Integrations**.
+2. Open the three-dot menu and select **Custom repositories**.
+3. Enter `https://github.com/NikNakk/pod-point-home-assistant-component`,
+   select **Integration** as the category, and choose **Add**.
+4. Find **Pod Point** in HACS and install it.
+
+Restart Home Assistant after installation. Then go to **Settings** → **Devices &
+services**, select **Add integration**, and search for **Pod Point**.
 
 
 ### Manually
@@ -173,10 +187,19 @@ is inactive. An open-ended charger override is shown as Always on, no active
 override is Scheduled, and a timed boost leaves the selector unavailable rather
 than misrepresenting the current mode.
 
-Manual schedules are fetched into coordinator data but are not exposed as dozens
-of per-day entities. A future integration action accepting and validating one
-complete seven-day schedule is the cleanest Home Assistant interface because the
-Pod Home API replaces all seven entries atomically, including overnight periods.
+Schedules are fetched into coordinator data using the library's canonical model;
+they are not exposed as dozens of per-day entities. Use the
+`pod_point.set_schedule` action to replace the complete week atomically. Its
+`schedules` field must contain exactly one entry for every ISO weekday (Monday is
+1 and Sunday is 7), with `start_time`, `end_day`, `end_time`, and `is_active` for
+each entry. Set `end_day` to the following weekday for an overnight interval.
+
+The integration fetches the existing week first and preserves Pod Point's
+server-generated schedule IDs. It then builds canonical `ChargerSchedule`
+objects and leaves collection-level validation—including overnight overlap and
+24-hour limits—to `podpointclient`. Smart charging must be inactive. The action
+checks the cached mode for an immediate error, and the library checks the live
+mode again immediately before replacing the schedule.
 
 ### Legacy API compatibility
 
@@ -317,9 +340,9 @@ are published as GitHub prereleases.
 [pod_point]: https://github.com/mattrayner/pod-point-home-assistant-component
 [chargetimeimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/3c7ebf994caf8eb5814859edc724e418c3e5746a/charge_time.png
 [commits-shield]: https://img.shields.io/github/commit-activity/y/NikNakk/pod-point-home-assistant-component.svg?style=for-the-badge
-[commits]: https://github.com/NikNakk/pod-point-home-assistant-component/commits/podhome
+[commits]: https://github.com/NikNakk/pod-point-home-assistant-component/commits/master
 [hacs]: https://github.com/custom-components/hacs
-[hacsbadge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge
+[hacsbadge]: https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge
 [exampleimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/48fdfe237f68c22d4098e8904926f534fdd49819/example.png
 [whichpodimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/bdb27d901f2bee5a741abb712785521b96191395/which_pod.png
 [forum-shield]: https://img.shields.io/badge/community-forum-brightgreen.svg?style=for-the-badge

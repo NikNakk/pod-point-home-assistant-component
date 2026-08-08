@@ -31,6 +31,7 @@ PLATFORMS = [BINARY_SENSOR, SENSOR, NUMBER, SELECT, SWITCH, UPDATE]
 
 SERVICE_CHARGE_NOW = "charge_now"
 SERVICE_STOP_CHARGE_NOW = "stop_charge_now"
+SERVICE_SET_SCHEDULE = "set_schedule"
 
 # Configuration and options
 CONF_EMAIL = "email"
@@ -61,6 +62,12 @@ ATTR_DEVICE_ID = "device_id"
 ATTR_HOURS = "hours"
 ATTR_MINUTES = "minutes"
 ATTR_SECONDS = "seconds"
+ATTR_SCHEDULES = "schedules"
+ATTR_START_DAY = "start_day"
+ATTR_START_TIME = "start_time"
+ATTR_END_DAY = "end_day"
+ATTR_END_TIME = "end_time"
+ATTR_IS_ACTIVE = "is_active"
 
 DEFAULT_CHARGE_NOW_DURATION = 60
 

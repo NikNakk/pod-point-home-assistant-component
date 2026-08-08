@@ -7,11 +7,12 @@ import pytest
 from podpointclient.charge_mode import ChargeMode
 from podpointclient.domain import (
     ChargerRef,
+    ChargerSchedule,
     ChargerState,
     NormalizedStateValue,
     StateValue,
 )
-from podpointclient.schedule import Schedule, ScheduleStatus
+from podpointclient.schedule import ScheduleStatus
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.pod_point.const import DOMAIN
@@ -19,6 +20,23 @@ from custom_components.pod_point.entity import PodPointEntity
 
 from .const import MOCK_CONFIG
 from .test_coordinator import subject_with_data as coordinator_with_data
+
+
+def schedule(
+    start_day: int,
+    start_time: str,
+    end_day: int,
+    end_time: str,
+    status: ScheduleStatus,
+) -> ChargerSchedule:
+    """Build a canonical schedule with the legacy test call shape."""
+    return ChargerSchedule(
+        start_day=start_day,
+        start_time=start_time,
+        end_day=end_day,
+        end_time=end_time,
+        is_active=status.is_active,
+    )
 
 
 async def setup_entity(hass) -> PodPointEntity:
@@ -82,90 +100,90 @@ async def test_pod_point_entity(hass, bypass_get_data):
     assert True is entity.charging_allowed
 
     # With no schedules
-    schedules = entity.coordinator.legacy_schedules[entity.charger.ppid]
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = []
+    schedules = entity.coordinator.schedules[entity.charger.ppid]
+    entity.coordinator.schedules[entity.charger.ppid] = []
     assert True is entity.charging_allowed
 
     # With no schedule for the current day
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = [
-        Schedule(9, "00:00:00", 9, "00:00:01", ScheduleStatus(is_active=True))
+    entity.coordinator.schedules[entity.charger.ppid] = [
+        schedule(9, "00:00:00", 9, "00:00:01", ScheduleStatus(is_active=True))
     ]
     assert False is entity.charging_allowed
 
     # With is_active as None
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = [
-        Schedule(1, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
-        Schedule(2, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
-        Schedule(3, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
-        Schedule(4, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
-        Schedule(5, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
-        Schedule(6, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
-        Schedule(7, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
+    entity.coordinator.schedules[entity.charger.ppid] = [
+        schedule(1, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
+        schedule(2, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
+        schedule(3, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
+        schedule(4, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
+        schedule(5, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
+        schedule(6, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
+        schedule(7, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=None)),
     ]
     assert False is entity.charging_allowed
 
     # With is_active as False
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = [
-        Schedule(1, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
-        Schedule(2, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
-        Schedule(3, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
-        Schedule(4, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
-        Schedule(5, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
-        Schedule(6, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
-        Schedule(7, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
+    entity.coordinator.schedules[entity.charger.ppid] = [
+        schedule(1, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
+        schedule(2, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
+        schedule(3, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
+        schedule(4, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
+        schedule(5, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
+        schedule(6, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
+        schedule(7, "00:00:00", 1, "00:00:01", ScheduleStatus(is_active=False)),
     ]
     assert True is entity.charging_allowed
 
     # With is_active as True, and within the charge time
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = [
-        Schedule(1, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
-        Schedule(2, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
-        Schedule(3, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
-        Schedule(4, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
-        Schedule(5, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
-        Schedule(6, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
-        Schedule(7, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
+    entity.coordinator.schedules[entity.charger.ppid] = [
+        schedule(1, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
+        schedule(2, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
+        schedule(3, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
+        schedule(4, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
+        schedule(5, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
+        schedule(6, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
+        schedule(7, "00:00:00", 1, "23:59:59", ScheduleStatus(is_active=True)),
     ]
     assert True is entity.charging_allowed
 
     # With is_active as True, and outside the charge time
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = [
-        Schedule(1, "00:00:00", 1, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(2, "00:00:00", 2, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(3, "00:00:00", 3, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(4, "00:00:00", 4, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(5, "00:00:00", 5, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(6, "00:00:00", 6, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(7, "00:00:00", 7, "00:00:00", ScheduleStatus(is_active=True)),
+    entity.coordinator.schedules[entity.charger.ppid] = [
+        schedule(1, "00:00:00", 1, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(2, "00:00:00", 2, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(3, "00:00:00", 3, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(4, "00:00:00", 4, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(5, "00:00:00", 5, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(6, "00:00:00", 6, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(7, "00:00:00", 7, "00:00:00", ScheduleStatus(is_active=True)),
     ]
     assert False is entity.charging_allowed
 
     # With end_day wrapping round
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = [
-        Schedule(1, "00:00:00", 0, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(2, "00:00:00", 1, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(3, "00:00:00", 2, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(4, "00:00:00", 3, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(5, "00:00:00", 4, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(6, "00:00:00", 5, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(7, "00:00:00", 6, "00:00:00", ScheduleStatus(is_active=True)),
+    entity.coordinator.schedules[entity.charger.ppid] = [
+        schedule(1, "00:00:00", 0, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(2, "00:00:00", 1, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(3, "00:00:00", 2, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(4, "00:00:00", 3, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(5, "00:00:00", 4, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(6, "00:00:00", 5, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(7, "00:00:00", 6, "00:00:00", ScheduleStatus(is_active=True)),
     ]
     assert True is entity.charging_allowed
 
     # With end_day rolling forward
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = [
-        Schedule(1, "00:00:00", 2, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(2, "00:00:00", 3, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(3, "00:00:00", 4, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(4, "00:00:00", 5, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(5, "00:00:00", 6, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(6, "00:00:00", 7, "00:00:00", ScheduleStatus(is_active=True)),
-        Schedule(7, "00:00:00", 8, "00:00:00", ScheduleStatus(is_active=True)),
+    entity.coordinator.schedules[entity.charger.ppid] = [
+        schedule(1, "00:00:00", 2, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(2, "00:00:00", 3, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(3, "00:00:00", 4, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(4, "00:00:00", 5, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(5, "00:00:00", 6, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(6, "00:00:00", 7, "00:00:00", ScheduleStatus(is_active=True)),
+        schedule(7, "00:00:00", 8, "00:00:00", ScheduleStatus(is_active=True)),
     ]
     assert True is entity.charging_allowed
 
     # Reset schedules
-    entity.coordinator.legacy_schedules[entity.charger.ppid] = schedules
+    entity.coordinator.schedules[entity.charger.ppid] = schedules
 
     assert 123456 == entity.unit_id
     assert "S7-UC-03-ACA" == entity.model

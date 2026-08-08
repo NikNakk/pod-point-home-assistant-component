@@ -1,15 +1,49 @@
 """Test pod_point services."""
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.service import async_get_all_descriptions
+from podpointclient.domain import ChargerSchedule
+from podpointclient.errors import RequestValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.pod_point.const import DOMAIN, SERVICE_CHARGE_NOW
+from custom_components.pod_point.const import (
+    DOMAIN,
+    SERVICE_CHARGE_NOW,
+    SERVICE_SET_SCHEDULE,
+)
 from custom_components.pod_point.services import PodPointServiceException
 
 from .const import MOCK_CONFIG
+
+
+def schedule_payload() -> list[dict]:
+    """Return one valid complete schedule service payload."""
+    return [
+        {
+            "start_day": day,
+            "start_time": "00:30:00",
+            "end_day": day,
+            "end_time": "04:30:00",
+            "is_active": day < 6,
+        }
+        for day in range(1, 8)
+    ]
+
+
+def canonical_schedule(day: int, *, uid: str) -> ChargerSchedule:
+    """Return one canonical schedule as supplied by podpointclient."""
+    return ChargerSchedule(
+        start_day=day,
+        start_time="01:00:00",
+        end_day=day,
+        end_time="02:00:00",
+        is_active=True,
+        uid=uid,
+    )
 
 
 @pytest.mark.asyncio
@@ -122,5 +156,102 @@ async def test_legacy_service_requires_device_for_multiple_pods(hass, bypass_get
             DOMAIN,
             SERVICE_CHARGE_NOW,
             {"config_entry_id": "test", "minutes": 30},
+            blocking=True,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.enable_socket
+async def test_set_schedule_constructs_canonical_week(hass, bypass_get_data):
+    """The service preserves fetched UIDs and constructs canonical entries."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = config_entry.runtime_data
+
+    descriptions = await async_get_all_descriptions(hass)
+    schedule_selector = descriptions[DOMAIN][SERVICE_SET_SCHEDULE]["fields"][
+        "schedules"
+    ]["selector"]["object"]
+    assert schedule_selector["multiple"] is True
+    assert set(schedule_selector["fields"]) == {
+        "start_day",
+        "start_time",
+        "end_day",
+        "end_time",
+        "is_active",
+    }
+
+    current = [canonical_schedule(day, uid=f"uid-{day}") for day in range(1, 8)]
+    saved = [canonical_schedule(day, uid=f"new-{day}") for day in range(1, 8)]
+    coordinator.api.async_get_charger_schedules = AsyncMock(return_value=current)
+    coordinator.api.async_replace_charger_schedules = AsyncMock(return_value=saved)
+    coordinator.async_request_refresh = AsyncMock()
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_SET_SCHEDULE,
+        {"config_entry_id": "test", "schedules": schedule_payload()},
+        blocking=True,
+    )
+
+    schedules = coordinator.api.async_replace_charger_schedules.call_args.args[1]
+    assert [schedule.start_day for schedule in schedules] == list(range(1, 8))
+    assert [schedule.uid for schedule in schedules] == [
+        f"uid-{day}" for day in range(1, 8)
+    ]
+    assert schedules[0].start_time == "00:30:00"
+    assert schedules[0].end_time == "04:30:00"
+    assert schedules[0].is_active is True
+    assert schedules[5].is_active is False
+    assert coordinator.schedules[coordinator.data[0].ppid] is saved
+    coordinator.async_request_refresh.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.enable_socket
+async def test_set_schedule_rejects_active_smart_mode(hass, bypass_get_data):
+    """Do not attempt a schedule write while cached smart mode is active."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = config_entry.runtime_data
+    ppid = coordinator.data[0].ppid
+    coordinator.smart_charging_states[ppid] = SimpleNamespace(status="ACTIVE")
+    coordinator.api.async_get_charger_schedules = AsyncMock()
+
+    with pytest.raises(PodPointServiceException, match="smart charging is active"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_SCHEDULE,
+            {"config_entry_id": "test", "schedules": schedule_payload()},
+            blocking=True,
+        )
+
+    coordinator.api.async_get_charger_schedules.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.enable_socket
+async def test_set_schedule_surfaces_library_validation(hass, bypass_get_data):
+    """Cross-entry schedule constraints remain owned by podpointclient."""
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    config_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = config_entry.runtime_data
+    current = [canonical_schedule(day, uid=f"uid-{day}") for day in range(1, 8)]
+    coordinator.api.async_get_charger_schedules = AsyncMock(return_value=current)
+    coordinator.api.async_replace_charger_schedules = AsyncMock(
+        side_effect=RequestValidationError("schedule periods overlap")
+    )
+
+    with pytest.raises(PodPointServiceException, match="schedule periods overlap"):
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_SET_SCHEDULE,
+            {"config_entry_id": "test", "schedules": schedule_payload()},
             blocking=True,
         )

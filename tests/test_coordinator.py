@@ -20,6 +20,7 @@ from podpointclient.domain import (
     NormalizedStateValue,
     StateValue,
     charger_ref_from_pod,
+    charger_schedule_from_legacy,
 )
 from podpointclient.errors import ApiConnectionError, APIError, AuthError, SessionError
 from podpointclient.factories import (
@@ -78,7 +79,9 @@ async def subject_with_data(hass) -> PodPointDataUpdateCoordinator:
     coordinator: PodPointDataUpdateCoordinator = await subject(hass)
     charger = charger_ref_from_pod(pods[0])
     coordinator.data = [charger]
-    coordinator.legacy_schedules[charger.ppid] = list(pods[0].charge_schedules)
+    coordinator.schedules[charger.ppid] = [
+        charger_schedule_from_legacy(schedule) for schedule in pods[0].charge_schedules
+    ]
     coordinator.boost_states[charger.ppid] = BoostState(
         ppid=charger.ppid, active=False, timed=False
     )
@@ -156,7 +159,7 @@ async def test_coordinator_refresh(hass, bypass_get_data):
     assert isinstance(coordinator.user, User) is True
     coordinator.api.async_get_user.assert_awaited_once_with(includes=["account"])
     coordinator.api.async_get_delegated_control.assert_awaited_once()
-    coordinator.api.async_get_manual_schedules.assert_not_awaited()
+    coordinator.api.async_get_manual_schedules.assert_awaited_once()
     coordinator.api.async_get_charge_history.assert_awaited_once_with(
         charger.linked_at.date(), datetime.now(UTC).date()
     )

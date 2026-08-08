@@ -66,3 +66,105 @@ stop_charge_now:
       selector:
         device:
           integration: pod_point
+
+set_schedule:
+  name: Set charging schedule
+  description: >-
+    Replaces the charger's complete seven-day basic-mode schedule. Smart charging
+    must be inactive. Days use ISO weekday numbers (Monday is 1 and Sunday is 7),
+    and an overnight period ends on the following day. Existing server-generated
+    schedule IDs are preserved automatically.
+  fields:
+    config_entry_id:
+      name: Pod Point Account
+      description: The account containing the charger. May be omitted when a charger is selected.
+      required: false
+      selector:
+        config_entry:
+          integration: pod_point
+    device_id:
+      name: Charger
+      description: The charger whose complete schedule should be replaced.
+      required: false
+      selector:
+        device:
+          integration: pod_point
+    schedules:
+      name: Seven-day schedule
+      description: >-
+        Exactly seven entries, one for each start_day from 1 through 7. Each entry
+        requires start_day, start_time, end_day, end_time, and is_active.
+      required: true
+      example:
+        - start_day: 1
+          start_time: "00:30:00"
+          end_day: 1
+          end_time: "04:30:00"
+          is_active: true
+        - start_day: 2
+          start_time: "00:30:00"
+          end_day: 2
+          end_time: "04:30:00"
+          is_active: true
+        - start_day: 3
+          start_time: "00:30:00"
+          end_day: 3
+          end_time: "04:30:00"
+          is_active: true
+        - start_day: 4
+          start_time: "00:30:00"
+          end_day: 4
+          end_time: "04:30:00"
+          is_active: true
+        - start_day: 5
+          start_time: "00:30:00"
+          end_day: 5
+          end_time: "04:30:00"
+          is_active: true
+        - start_day: 6
+          start_time: "00:30:00"
+          end_day: 6
+          end_time: "04:30:00"
+          is_active: true
+        - start_day: 7
+          start_time: "00:30:00"
+          end_day: 7
+          end_time: "04:30:00"
+          is_active: true
+      selector:
+        object:
+          multiple: true
+          fields:
+            start_day:
+              label: Start day (Monday 1–Sunday 7)
+              required: true
+              selector:
+                number:
+                  min: 1
+                  max: 7
+                  step: 1
+                  mode: box
+            start_time:
+              label: Start time
+              required: true
+              selector:
+                time:
+            end_day:
+              label: End day (Monday 1–Sunday 7)
+              required: true
+              selector:
+                number:
+                  min: 1
+                  max: 7
+                  step: 1
+                  mode: box
+            end_time:
+              label: End time
+              required: true
+              selector:
+                time:
+            is_active:
+              label: Active
+              required: true
+              selector:
+                boolean:

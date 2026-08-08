@@ -14,8 +14,8 @@ from podpointclient.domain import (
     CapabilitySupport,
     ChargerCapability,
     ChargerRef,
+    ChargerSchedule,
 )
-from podpointclient.schedule import Schedule
 
 from .const import (
     APP_IMAGE_URL_BASE,
@@ -219,7 +219,7 @@ class PodPointEntity(CoordinatorEntity):
             # Pod Home connectivity is authoritative. Legacy schedules are not
             # available to, or used by, the current app.
             return True
-        schedules: list[Schedule] = self.coordinator.legacy_schedules.get(
+        schedules: list[ChargerSchedule] = self.coordinator.schedules.get(
             charger.ppid, []
         )
 
@@ -244,7 +244,7 @@ class PodPointEntity(CoordinatorEntity):
             timezone = ZoneInfo("UTC")
         now = datetime.now(timezone)
         weekday = now.weekday() + 1
-        schedule_for_day: Schedule = next(
+        schedule_for_day: ChargerSchedule = next(
             (schedule for schedule in schedules if schedule.start_day == weekday),
             None,
         )
