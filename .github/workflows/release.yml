@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Run release checks
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Publish GitHub release
+    if: github.repository == 'NikNakk/pod-point-home-assistant-component'
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate release version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Tag '$TAG' is not a supported semantic version (for example v2.1.0 or v2.1.0-beta.9)."
+            exit 1
+          fi
+
+          expected_version="${TAG#v}"
+          manifest_version="$(jq -r '.version' custom_components/pod_point/manifest.json)"
+          module_version="$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' custom_components/pod_point/version.py)"
+
+          if [[ "$manifest_version" != "$expected_version" ]]; then
+            echo "manifest.json version '$manifest_version' does not match tag '$TAG'."
+            exit 1
+          fi
+
+          if [[ "$module_version" != "$expected_version" ]]; then
+            echo "version.py version '$module_version' does not match tag '$TAG'."
+            exit 1
+          fi
+
+      - name: Create GitHub prerelease
+        if: contains(github.ref_name, '-')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --verify-tag
+          --generate-notes
+          --title "$GITHUB_REF_NAME"
+          --prerelease
+
+      - name: Create GitHub release
+        if: ${{ !contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME"
+          --verify-tag
+          --generate-notes
+          --title "$GITHUB_REF_NAME"
+          --latest

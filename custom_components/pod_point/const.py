@@ -10,7 +10,7 @@ NAME = "Pod Point"
 DOMAIN = "pod_point"
 VERSION = integration_version
 ATTRIBUTION = "Data provided by https://pod-point.com/"
-ISSUE_URL = "https://github.com/mattrayner/pod-point-home-assistant-component/issues"
+ISSUE_URL = "https://github.com/NikNakk/pod-point-home-assistant-component/issues"
 
 # Icons
 ICON_1C = "mdi:ev-plug-type1"

@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "**"
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
+      - name: Hassfest validation
+        uses: home-assistant/actions/hassfest@master
+
+  quality:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements_test.txt
+
+      - name: Install dependencies
+        run: python -m pip install ruff -r requirements_test.txt -r requirements.txt
+
+      - name: Check lint and formatting
+        run: |
+          ruff check custom_components/pod_point tests
+          ruff format --check custom_components/pod_point tests
+
+      - name: Run tests
+        run: >-
+          pytest
+          -qq
+          --timeout=9
+          --durations=10
+          --cov=custom_components.pod_point
+          --cov-report=term-missing
+          --cov-fail-under=90
+          -o console_output_style=count
+          -p no:sugar
+          tests

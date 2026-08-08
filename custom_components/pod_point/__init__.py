@@ -2,7 +2,7 @@
 Custom integration to integrate pod_point with Home Assistant.
 
 For more details about this integration, please refer to
-https://github.com/mattrayner/pod-point-home-assistant-component
+https://github.com/NikNakk/pod-point-home-assistant-component
 """
 
 import logging

@@ -6,8 +6,6 @@
 
 [![hacs][hacsbadge]][hacs]
 ![Project Maintenance][maintenance-shield]
-[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
-
 [![Community Forum][forum-shield]][forum]
 
 _Unofficial Home Assistant integration for [Pod Point][pod_point_web] Solo, Solo 3,
@@ -302,23 +300,32 @@ Once you have setup the environment with all of the dependencies, try running th
 make test
 ```
 
+### Releases
+
+Release tags use Semantic Versioning with a leading `v`, for example `v3.0.0`,
+`v3.0.0-beta.1`, or `v3.0.0-rc.1`. Before tagging, set the same version (without
+the leading `v`) in both `custom_components/pod_point/manifest.json` and
+`custom_components/pod_point/version.py`.
+
+Pushing a matching tag runs the full CI suite and, if it passes, publishes a
+GitHub release with generated release notes. Tags containing a prerelease suffix
+are published as GitHub prereleases.
+
 ***
 
 [pod_point_web]: https://pod-point.com
 [pod_point]: https://github.com/mattrayner/pod-point-home-assistant-component
-[buymecoffee]: https://www.buymeacoffee.com/mattrayner
-[buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
 [chargetimeimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/3c7ebf994caf8eb5814859edc724e418c3e5746a/charge_time.png
-[commits-shield]: https://img.shields.io/github/commit-activity/y/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[commits]: https://github.com/mattrayner/pod-point-home-assistant-component/commits/master
+[commits-shield]: https://img.shields.io/github/commit-activity/y/NikNakk/pod-point-home-assistant-component.svg?style=for-the-badge
+[commits]: https://github.com/NikNakk/pod-point-home-assistant-component/commits/podhome
 [hacs]: https://github.com/custom-components/hacs
 [hacsbadge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge
 [exampleimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/48fdfe237f68c22d4098e8904926f534fdd49819/example.png
 [whichpodimg]: https://github.com/mattrayner/pod-point-home-assistant-component/raw/bdb27d901f2bee5a741abb712785521b96191395/which_pod.png
 [forum-shield]: https://img.shields.io/badge/community-forum-brightgreen.svg?style=for-the-badge
 [forum]: https://community.home-assistant.io/
-[license-shield]: https://img.shields.io/github/license/mattrayner/pod-point-home-assistant-component.svg?style=for-the-badge
-[maintenance-shield]: https://img.shields.io/badge/maintainer-Matt%20Rayner-blue.svg?style=for-the-badge
+[license-shield]: https://img.shields.io/github/license/NikNakk/pod-point-home-assistant-component.svg?style=for-the-badge
+[maintenance-shield]: https://img.shields.io/badge/maintainer-Nick%20Kennedy-blue.svg?style=for-the-badge
 [releases-shield]: https://img.shields.io/github/v/release/niknakk/pod-point-home-assistant-component?include_prereleases
-[releases]: https://github.com/mattrayner/pod-point-home-assistant-component/releases
+[releases]: https://github.com/NikNakk/pod-point-home-assistant-component/releases
 [hacs-add-repo]: https://hacs.xyz/docs/faq/custom_repositories

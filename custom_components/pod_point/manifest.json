@@ -2,7 +2,7 @@
   "domain": "pod_point",
   "name": "Pod Point",
   "codeowners": [
-    "@mattrayner"
+    "@NikNakk"
   ],
   "config_flow": true,
   "dependencies": ["http"],
@@ -560,10 +560,10 @@
       "macaddress": "B0B21C*"
     }
   ],
-  "documentation": "https://github.com/mattrayner/pod-point-home-assistant-component",
+  "documentation": "https://github.com/NikNakk/pod-point-home-assistant-component",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/mattrayner/pod-point-home-assistant-component/issues",
+  "issue_tracker": "https://github.com/NikNakk/pod-point-home-assistant-component/issues",
   "quality_scale": "silver",
   "requirements": [
     "podpointclient-niknakk==1.7.0b8"
