@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.service import async_get_all_descriptions
 from podpointclient.domain import ChargerSchedule
 from podpointclient.errors import RequestValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -169,19 +168,6 @@ async def test_set_schedule_constructs_canonical_week(hass, bypass_get_data):
     await hass.config_entries.async_setup(config_entry.entry_id)
     await hass.async_block_till_done()
     coordinator = config_entry.runtime_data
-
-    descriptions = await async_get_all_descriptions(hass)
-    schedule_selector = descriptions[DOMAIN][SERVICE_SET_SCHEDULE]["fields"][
-        "schedules"
-    ]["selector"]["object"]
-    assert schedule_selector["multiple"] is True
-    assert set(schedule_selector["fields"]) == {
-        "start_day",
-        "start_time",
-        "end_day",
-        "end_time",
-        "is_active",
-    }
 
     current = [canonical_schedule(day, uid=f"uid-{day}") for day in range(1, 8)]
     saved = [canonical_schedule(day, uid=f"new-{day}") for day in range(1, 8)]

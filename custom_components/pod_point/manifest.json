@@ -5,7 +5,9 @@
     "@NikNakk"
   ],
   "config_flow": true,
-  "dependencies": ["http"],
+  "dependencies": [
+    "http"
+  ],
   "dhcp": [
     {
       "hostname": "podpoint-*",
@@ -568,5 +570,5 @@
   "requirements": [
     "podpointclient-niknakk==2.0.0b1"
   ],
-  "version": "3.0.0-beta.2"
+  "version": "3.0.0-beta.3"
 }
