@@ -1,1 +1,1 @@
-podpointclient-niknakk==2.0.0b1
+podpointclient-niknakk==2.0.0b2

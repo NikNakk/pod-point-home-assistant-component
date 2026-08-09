@@ -21,6 +21,7 @@ from podpointclient.domain import (
     BoostState,
     ChargerRef,
     ChargerSchedule,
+    ChargerSource,
     ChargerState,
     ChargeSession,
     reconcile_charge_sessions,
@@ -35,7 +36,7 @@ from podpointclient.errors import (
 from podpointclient.pod import Firmware
 from podpointclient.user import User
 
-from .const import DOMAIN
+from .const import CONF_LEGACY_WIRE_API, DOMAIN
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -154,9 +155,8 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
                     now,
                 )
 
-            # Discovery and Home-to-legacy fallback are owned by podpointclient.
             previous_charger_count = len(self.data or [])
-            charger_refs = await self.api.async_discover_chargers()
+            charger_refs = await self.__async_discover_chargers()
             self.__prune_removed_chargers(charger_refs)
             for charger in charger_refs:
                 self.metrics.setdefault(charger.ppid, ChargerMetrics())
@@ -265,6 +265,33 @@ If this issue persists, please contact the developer."
             )
             _LOGGER.exception("Unexpected Pod Point update failure")
             raise UpdateFailed() from exception
+
+    async def __async_discover_chargers(self) -> list[ChargerRef]:
+        """Discover chargers using each charger's configured wire API."""
+        legacy_preferences = self.config_entry.options.get(CONF_LEGACY_WIRE_API, {})
+        home_refs = await self.api.async_discover_chargers(ChargerSource.HOME)
+        legacy_ppids = {ppid for ppid, enabled in legacy_preferences.items() if enabled}
+        if not legacy_ppids:
+            return home_refs
+
+        legacy_refs = await self.api.async_discover_chargers(ChargerSource.LEGACY)
+        legacy_by_ppid = {charger.ppid: charger for charger in legacy_refs}
+        discovered_ppids = {charger.ppid for charger in home_refs}
+
+        selected_refs = [
+            (
+                legacy_by_ppid.get(charger.ppid, charger)
+                if charger.ppid in legacy_ppids
+                else charger
+            )
+            for charger in home_refs
+        ]
+        selected_refs.extend(
+            charger
+            for charger in legacy_refs
+            if charger.ppid in legacy_ppids and charger.ppid not in discovered_ppids
+        )
+        return selected_refs
 
     async def __async_refresh_live_sessions(self, chargers: list[ChargerRef]) -> None:
         """Refresh canonical live sessions without selecting a wire API."""

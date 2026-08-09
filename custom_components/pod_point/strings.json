@@ -89,6 +89,9 @@
         "switch": {
             "charge_now": {
                 "name": "Charge now"
+            },
+            "legacy_wire_api": {
+                "name": "Legacy wire API"
             }
         }
     }

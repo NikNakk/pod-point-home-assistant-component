@@ -1,3 +1,3 @@
 """Version of the Pod Point integration"""
 
-__version__ = "3.0.0-beta.3"
+__version__ = "3.0.0-beta.4"

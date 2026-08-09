@@ -3,7 +3,7 @@
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -19,6 +19,7 @@ from podpointclient.domain import (
     ChargerState,
     NormalizedStateValue,
     StateValue,
+    charger_ref_from_charger,
     charger_ref_from_pod,
     charger_schedule_from_legacy,
 )
@@ -29,10 +30,11 @@ from podpointclient.factories import (
     PodFactory,
     UserFactory,
 )
+from podpointclient.pod import Pod
 from podpointclient.user import User
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.pod_point.const import DOMAIN
+from custom_components.pod_point.const import CONF_LEGACY_WIRE_API, DOMAIN
 from custom_components.pod_point.coordinator import (
     ChargerMetrics,
     PodPointDataUpdateCoordinator,
@@ -48,7 +50,7 @@ from .fixtures import (
 )
 
 
-async def subject(hass) -> PodPointDataUpdateCoordinator:
+async def subject(hass, options=None) -> PodPointDataUpdateCoordinator:
     """Rerturn a setup coordinator"""
     session = async_get_clientsession(hass)
     client = PodPointClient(
@@ -56,7 +58,7 @@ async def subject(hass) -> PodPointDataUpdateCoordinator:
     )
 
     # Setup our data coordinator with the desired scan interval
-    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG)
+    config_entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, options=options)
     return PodPointDataUpdateCoordinator(
         hass,
         config_entry=config_entry,
@@ -165,6 +167,33 @@ async def test_coordinator_refresh(hass, bypass_get_data):
     )
     coordinator.api.async_get_all_charges.assert_not_awaited()
     coordinator.api.async_get_charges.assert_awaited_once_with(perpage=3, page=1)
+
+
+@pytest.mark.asyncio
+async def test_discovery_selects_legacy_wire_api_per_charger(hass):
+    """A legacy preference replaces only the matching Home reference."""
+    coordinator = await subject(hass, {CONF_LEGACY_WIRE_API: {"LEGACY": True}})
+    home_refs = [
+        charger_ref_from_charger(Charger({"ppid": "HOME", "unitId": 1})),
+        charger_ref_from_charger(Charger({"ppid": "LEGACY", "unitId": 2})),
+    ]
+    legacy_refs = [
+        charger_ref_from_pod(Pod({"ppid": "HOME", "unit_id": 1})),
+        charger_ref_from_pod(Pod({"ppid": "LEGACY", "unit_id": 2})),
+    ]
+    coordinator.api.async_discover_chargers = AsyncMock(
+        side_effect=[home_refs, legacy_refs]
+    )
+
+    result = await coordinator._PodPointDataUpdateCoordinator__async_discover_chargers()
+
+    assert [charger.source for charger in result] == [
+        ChargerSource.HOME,
+        ChargerSource.LEGACY,
+    ]
+    coordinator.api.async_discover_chargers.assert_has_awaits(
+        [call(ChargerSource.HOME), call(ChargerSource.LEGACY)]
+    )
 
 
 @pytest.mark.asyncio
