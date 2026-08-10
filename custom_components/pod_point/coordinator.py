@@ -158,7 +158,7 @@ class PodPointDataUpdateCoordinator(DataUpdateCoordinator):
             previous_charger_count = len(self.data or [])
             charger_source = (
                 ChargerSource.LEGACY
-                if self.config_entry.data.get(CONF_USE_LEGACY_API, False)
+                if self.config_entry.options.get(CONF_USE_LEGACY_API, False)
                 else ChargerSource.HOME
             )
             charger_refs = await self.api.async_discover_chargers(charger_source)

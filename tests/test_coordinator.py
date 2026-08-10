@@ -175,7 +175,7 @@ async def test_coordinator_refresh(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_discovery_uses_configured_legacy_api(hass, bypass_get_data):
     """The account-level preference selects legacy discovery."""
-    coordinator = await subject(hass, data={**MOCK_CONFIG, CONF_USE_LEGACY_API: True})
+    coordinator = await subject(hass, options={CONF_USE_LEGACY_API: True})
     coordinator.api.async_discover_chargers = AsyncMock(return_value=[])
 
     await coordinator._async_update_data()

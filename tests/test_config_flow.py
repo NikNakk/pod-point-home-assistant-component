@@ -78,7 +78,8 @@ async def test_successful_config_flow(hass, bypass_get_data):
     # the input data
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "test@example.com"
-    assert result["data"] == FLOW_CONFIG
+    assert result["data"] == MOCK_CONFIG
+    assert dict(result["result"].options) == {CONF_USE_LEGACY_API: False}
     assert result["result"]
 
 
@@ -88,7 +89,13 @@ async def test_successful_config_flow(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_reauth_config_flow(hass, bypass_get_data):
     """Test a successful config flow."""
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=MOCK_CONFIG,
+        options={CONF_USE_LEGACY_API: True},
+        entry_id="test",
+        version=1,
+    )
     entry.add_to_hass(hass)
 
     # Initialize a config flow
@@ -113,7 +120,6 @@ async def test_reauth_config_flow(hass, bypass_get_data):
 
     updated_config = dict(MOCK_CONFIG)
     updated_config[CONF_PASSWORD] = "NewH8x0rP455!"
-    updated_config[CONF_USE_LEGACY_API] = False
 
     # If a user entered a new password, this would happen
     result_3 = await hass.config_entries.flow.async_configure(
@@ -124,6 +130,7 @@ async def test_reauth_config_flow(hass, bypass_get_data):
     assert result_3["type"] == FlowResultType.ABORT
     assert result_3["reason"] == "reauth_successful"
     assert entry.data == updated_config
+    assert dict(entry.options) == {CONF_USE_LEGACY_API: True}
 
 
 # In this case, we want to simulate a failure during the config flow.
@@ -193,6 +200,7 @@ async def test_options_flow(hass, bypass_get_data):
         user_input={
             **{platform: platform != SENSOR for platform in PLATFORMS},
             CONF_CURRENCY: "usd",
+            CONF_USE_LEGACY_API: True,
         },
     )
 
@@ -206,33 +214,8 @@ async def test_options_flow(hass, bypass_get_data):
         CONF_SCAN_INTERVAL: 300,
         CONF_HTTP_DEBUG: False,
         CONF_CURRENCY: "USD",
+        CONF_USE_LEGACY_API: True,
     }
-
-
-@pytest.mark.asyncio
-async def test_reconfigure_flow_selects_legacy_api(hass):
-    """An existing entry can change its account-level wire API."""
-    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
-    entry.add_to_hass(hass)
-
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={
-            "source": config_entries.SOURCE_RECONFIGURE,
-            "entry_id": entry.entry_id,
-        },
-    )
-
-    assert result["type"] == FlowResultType.FORM
-    assert result["step_id"] == "reconfigure"
-
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input={CONF_USE_LEGACY_API: True}
-    )
-
-    assert result["type"] == FlowResultType.ABORT
-    assert result["reason"] == "reconfigure_successful"
-    assert entry.data == {**MOCK_CONFIG, CONF_USE_LEGACY_API: True}
 
 
 # Our config flow also has an DHCP flow, so we must test it as well.
@@ -252,7 +235,8 @@ async def test_dhcp_flow(hass: HomeAssistant, bypass_get_data) -> None:
     )
 
     assert result2["type"] == "create_entry"
-    assert result2["data"] == FLOW_CONFIG
+    assert result2["data"] == MOCK_CONFIG
+    assert dict(result2["result"].options) == {CONF_USE_LEGACY_API: False}
 
 
 @pytest.mark.asyncio

@@ -15,12 +15,6 @@
                     "use_legacy_api": "Use legacy API"
                 }
             },
-            "reconfigure": {
-                "description": "Choose which API to use for chargers on this account.",
-                "data": {
-                    "use_legacy_api": "Use legacy API"
-                }
-            },
             "reauth_confirm": {
                 "description": "Pod Point needs to reauthenticate your account."
             }
@@ -50,7 +44,8 @@
                     "scan_interval": "Poll interval (seconds)",
                     "http_debug": "Enable verbose HTTP logging",
                     "update": "Enable firmware update entities",
-                    "currency": "Currency used for cost sensors"
+                    "currency": "Currency used for cost sensors",
+                    "use_legacy_api": "Use legacy API"
                 }
             }
         }
