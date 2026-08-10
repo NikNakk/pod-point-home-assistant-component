@@ -15,12 +15,15 @@ from custom_components.pod_point.const import (
     CONF_HTTP_DEBUG,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
+    CONF_USE_LEGACY_API,
     DOMAIN,
     PLATFORMS,
     SENSOR,
 )
 
 from .const import MOCK_CONFIG
+
+FLOW_CONFIG = {**MOCK_CONFIG, CONF_USE_LEGACY_API: False}
 
 DHCP_SERVICE_INFO = dhcp.DhcpServiceInfo(
     hostname="podpoint-245EBE000000",
@@ -66,14 +69,14 @@ async def test_successful_config_flow(hass, bypass_get_data):
     # If a user were to enter `test_username` for username and `test_password`
     # for password, it would result in this function call
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input=MOCK_CONFIG
+        result["flow_id"], user_input=FLOW_CONFIG
     )
 
     # Check that the config flow is complete and a new entry is created with
     # the input data
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert result["title"] == "test@example.com"
-    assert result["data"] == MOCK_CONFIG
+    assert result["data"] == FLOW_CONFIG
     assert result["result"]
 
 
@@ -108,6 +111,7 @@ async def test_reauth_config_flow(hass, bypass_get_data):
 
     updated_config = dict(MOCK_CONFIG)
     updated_config[CONF_PASSWORD] = "NewH8x0rP455!"
+    updated_config[CONF_USE_LEGACY_API] = False
 
     # If a user entered a new password, this would happen
     result_3 = await hass.config_entries.flow.async_configure(
@@ -135,7 +139,7 @@ async def test_failed_config_flow(hass, error_on_get_data):
     assert result["step_id"] == "user"
 
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input=MOCK_CONFIG
+        result["flow_id"], user_input=FLOW_CONFIG
     )
 
     assert result["type"] == FlowResultType.FORM
@@ -154,7 +158,7 @@ async def test_config_flow_connection_error(hass):
         side_effect=ApiConnectionError("connection failed"),
     ):
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], user_input=MOCK_CONFIG
+            result["flow_id"], user_input=FLOW_CONFIG
         )
 
     assert result["type"] == FlowResultType.FORM
@@ -196,6 +200,32 @@ async def test_options_flow(hass, bypass_get_data):
     }
 
 
+@pytest.mark.asyncio
+async def test_reconfigure_flow_selects_legacy_api(hass):
+    """An existing entry can change its account-level wire API."""
+    entry = MockConfigEntry(domain=DOMAIN, data=MOCK_CONFIG, entry_id="test")
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={
+            "source": config_entries.SOURCE_RECONFIGURE,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_USE_LEGACY_API: True}
+    )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data == {**MOCK_CONFIG, CONF_USE_LEGACY_API: True}
+
+
 # Our config flow also has an DHCP flow, so we must test it as well.
 @pytest.mark.asyncio
 async def test_dhcp_flow(hass: HomeAssistant, bypass_get_data) -> None:
@@ -209,11 +239,11 @@ async def test_dhcp_flow(hass: HomeAssistant, bypass_get_data) -> None:
     assert result["step_id"] == "user"
 
     result2 = await hass.config_entries.flow.async_configure(
-        result["flow_id"], user_input=MOCK_CONFIG
+        result["flow_id"], user_input=FLOW_CONFIG
     )
 
     assert result2["type"] == "create_entry"
-    assert result2["data"] == MOCK_CONFIG
+    assert result2["data"] == FLOW_CONFIG
 
 
 @pytest.mark.asyncio
@@ -232,6 +262,6 @@ async def test_dhcp_login_error(hass: HomeAssistant, bypass_get_data) -> None:
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            MOCK_CONFIG,
+            FLOW_CONFIG,
         )
         assert result["errors"] == {"base": "auth"}

@@ -36,7 +36,7 @@ Platform | Entities
 `binary_sensor` | Cable status and cloud connection
 `sensor` | Charger status, charge mode, boost end time, signal strength, last message, current and total energy, completed charge time, charge costs, and account balance
 `number` | Persistent duration used by the Charge now switch
-`switch` | Start or stop a timed Charge now boost, and select the legacy wire API per charger
+`switch` | Start or stop a timed Charge now boost
 `update` | Installed firmware and update availability
 
 The Home API also provides these entities when the corresponding feature and data
@@ -204,11 +204,12 @@ mode again immediately before replacing the schedule.
 ### Legacy API compatibility
 
 The legacy Pod Point API is no longer the integration's main interface. It is used
-on a best-effort basis when a charger is not returned by the Home API, or when the
-charger's **Legacy wire API** configuration switch is enabled. Legacy chargers
-receive the older **Charging Allowed** schedule switch instead of the Pod Home
-smart-charging controls, and do not receive Home-only tariff, reward,
-delegated-vehicle, remote off-mode, or smart-charging preference entities.
+on a best-effort basis when a charger is not returned by the Home API, or when
+**Use legacy API** is selected during setup or from the integration's reconfigure
+flow. Legacy chargers receive the older **Charging Allowed** schedule switch
+instead of the Pod Home smart-charging controls, and do not receive Home-only
+tariff, reward, delegated-vehicle, remote off-mode, or smart-charging preference
+entities.
 
 Legacy compatibility is maintained to avoid abruptly dropping older chargers,
 but new features are developed against the Home API and equivalent behavior is

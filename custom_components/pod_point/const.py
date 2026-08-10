@@ -40,7 +40,7 @@ CONF_SCAN_INTERVAL = "scan_interval"
 DEFAULT_SCAN_INTERVAL = 300
 CONF_HTTP_DEBUG = "http_debug"
 DEFAULT_HTTP_DEBUG = False
-CONF_LEGACY_WIRE_API = "legacy_wire_api"
+CONF_USE_LEGACY_API = "use_legacy_api"
 CONF_CURRENCY = "currency"
 DEFAULT_CURRENCY = "GBP"
 

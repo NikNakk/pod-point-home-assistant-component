@@ -3,13 +3,12 @@
 import logging
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.const import EntityCategory
 from homeassistant.exceptions import ServiceValidationError
 from podpointclient.client import PodPointClient
 from podpointclient.domain import CapabilitySupport, ChargerCapability
 from podpointclient.errors import RequestValidationError
 
-from .const import CONF_LEGACY_WIRE_API, DEFAULT_CHARGE_NOW_DURATION, SWITCH_ICON
+from .const import DEFAULT_CHARGE_NOW_DURATION, SWITCH_ICON
 from .coordinator import PodPointDataUpdateCoordinator
 from .entity import PodPointEntity
 from .services import async_start_charge_now, async_stop_charge_now
@@ -25,10 +24,7 @@ async def async_setup_entry(hass, entry, async_add_devices):
     def _add_new_entities() -> None:
         switches = []
         for index, charger in enumerate(coordinator.data):
-            candidates = [
-                ("charge_now", PodPointChargeNowSwitch),
-                ("legacy_wire_api", PodPointLegacyWireApiSwitch),
-            ]
+            candidates = [("charge_now", PodPointChargeNowSwitch)]
             if (
                 charger.capability(ChargerCapability.BASIC_CHARGING_MODE)
                 is not CapabilitySupport.UNSUPPORTED
@@ -49,45 +45,6 @@ async def async_setup_entry(hass, entry, async_add_devices):
 
     _add_new_entities()
     entry.async_on_unload(coordinator.async_add_listener(_add_new_entities))
-
-
-class PodPointLegacyWireApiSwitch(PodPointEntity, SwitchEntity):
-    """Select the legacy wire API for one charger."""
-
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_has_entity_name = True
-    _attr_name = "Legacy wire API"
-    _attr_translation_key = "legacy_wire_api"
-    _attr_icon = "mdi:api"
-
-    @property
-    def unique_id(self):
-        return f"{super().unique_id}_legacy_wire_api"
-
-    @property
-    def is_on(self) -> bool:
-        """Return whether this charger uses the legacy wire API."""
-        preferences = self.config_entry.options.get(CONF_LEGACY_WIRE_API, {})
-        return bool(preferences.get(self.charger.ppid, False))
-
-    async def async_turn_on(self, **kwargs):  # pylint: disable=unused-argument
-        """Use the legacy wire API for this charger."""
-        self._async_set_preference(True)
-
-    async def async_turn_off(self, **kwargs):  # pylint: disable=unused-argument
-        """Use the Home wire API for this charger."""
-        self._async_set_preference(False)
-
-    def _async_set_preference(self, enabled: bool) -> None:
-        """Persist the charger preference; the entry listener performs reload."""
-        options = dict(self.config_entry.options)
-        preferences = dict(options.get(CONF_LEGACY_WIRE_API, {}))
-        if enabled:
-            preferences[self.charger.ppid] = True
-        else:
-            preferences.pop(self.charger.ppid, None)
-        options[CONF_LEGACY_WIRE_API] = preferences
-        self.hass.config_entries.async_update_entry(self.config_entry, options=options)
 
 
 class PodPointChargeNowSwitch(PodPointEntity, SwitchEntity):

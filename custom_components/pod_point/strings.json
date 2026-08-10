@@ -11,7 +11,14 @@
                 "description": "Enter the email and password used to sign in to the Pod Point mobile app.",
                 "data": {
                     "email": "Email address",
-                    "password": "Password"
+                    "password": "Password",
+                    "use_legacy_api": "Use legacy API"
+                }
+            },
+            "reconfigure": {
+                "description": "Choose which API to use for chargers on this account.",
+                "data": {
+                    "use_legacy_api": "Use legacy API"
                 }
             },
             "reauth_confirm": {
@@ -89,9 +96,6 @@
         "switch": {
             "charge_now": {
                 "name": "Charge now"
-            },
-            "legacy_wire_api": {
-                "name": "Legacy wire API"
             }
         }
     }

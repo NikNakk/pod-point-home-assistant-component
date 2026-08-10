@@ -1,6 +1,7 @@
 """Adds config flow for Pod Point."""
 
 import logging
+from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -18,6 +19,7 @@ from .const import (
     CONF_HTTP_DEBUG,
     CONF_PASSWORD,
     CONF_SCAN_INTERVAL,
+    CONF_USE_LEGACY_API,
     DEFAULT_CURRENCY,
     DEFAULT_HTTP_DEBUG,
     DEFAULT_SCAN_INTERVAL,
@@ -74,7 +76,7 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_user()
 
     async def async_step_user(
-        self, user_input: dict[str, str] | None = None
+        self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         self._errors = {}
@@ -88,6 +90,11 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 else ""
             )
             user_input[CONF_PASSWORD] = ""
+            user_input[CONF_USE_LEGACY_API] = (
+                self._get_reauth_entry().data.get(CONF_USE_LEGACY_API, False)
+                if self.source == config_entries.SOURCE_REAUTH
+                else False
+            )
 
             return await self._show_config_form(user_input)
 
@@ -125,6 +132,29 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_create_entry(title=user_input[CONF_EMAIL], data=user_input)
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, bool] | None = None
+    ) -> ConfigFlowResult:
+        """Allow an existing entry to select its wire API."""
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates=user_input,
+            )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_USE_LEGACY_API,
+                        default=entry.data.get(CONF_USE_LEGACY_API, False),
+                    ): bool
+                }
+            ),
+        )
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry) -> config_entries.OptionsFlow:
@@ -144,7 +174,9 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
         return await self.async_step_user()
 
-    async def _show_config_form(self, user_input: dict[str, str]) -> ConfigFlowResult:  # pylint: disable=unused-argument
+    async def _show_config_form(
+        self, user_input: dict[str, Any]
+    ) -> ConfigFlowResult:  # pylint: disable=unused-argument
         """Show the configuration form to edit location data."""
         return self.async_show_form(
             step_id="user",
@@ -152,6 +184,10 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 {
                     vol.Required(CONF_EMAIL, default=user_input[CONF_EMAIL]): str,
                     vol.Required(CONF_PASSWORD, default=user_input[CONF_PASSWORD]): str,
+                    vol.Required(
+                        CONF_USE_LEGACY_API,
+                        default=user_input[CONF_USE_LEGACY_API],
+                    ): bool,
                 }
             ),
             errors=self._errors,
@@ -175,7 +211,9 @@ class PodPointFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
     """Pod Point config flow options handler."""
 
-    async def async_step_init(self, _=None) -> ConfigFlowResult:  # pylint: disable=unused-argument
+    async def async_step_init(
+        self, _=None
+    ) -> ConfigFlowResult:  # pylint: disable=unused-argument
         """Manage the options."""
         self.options = dict(self.config_entry.options)
         return await self.async_step_user()

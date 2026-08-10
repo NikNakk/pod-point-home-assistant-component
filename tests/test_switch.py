@@ -1,17 +1,16 @@
 """Tests for Pod Home smart charging switches."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from podpointclient.domain import BasicChargingMode, BoostState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.pod_point.const import CONF_LEGACY_WIRE_API, DOMAIN
+from custom_components.pod_point.const import DOMAIN
 from custom_components.pod_point.switch import (
     PodPointChargeModeSwitch,
     PodPointChargeNowSwitch,
-    PodPointLegacyWireApiSwitch,
 )
 
 from .const import MOCK_CONFIG
@@ -46,32 +45,6 @@ async def test_smart_switch_state(hass, bypass_get_data):
     coordinator.smart_charging_states.pop(entity.charger.ppid)
     assert entity.available is False
     assert entity.unique_id.endswith("_smart_charge_mode")
-
-
-@pytest.mark.asyncio
-async def test_legacy_wire_api_switch_persists_per_charger(hass, bypass_get_data):
-    """The configuration switch stores and clears its PPID preference."""
-    coordinator, mode_entity = await setup_smart_switch(hass)
-    entity = PodPointLegacyWireApiSwitch(coordinator, mode_entity.config_entry, 0)
-    entity.hass = hass
-    assert entity.is_on is False
-
-    with patch.object(hass.config_entries, "async_update_entry") as update_entry:
-        await entity.async_turn_on()
-        options = update_entry.call_args.kwargs["options"]
-        assert options[CONF_LEGACY_WIRE_API] == {entity.charger.ppid: True}
-
-        configured_entry = MockConfigEntry(
-            domain=DOMAIN, data=MOCK_CONFIG, options=options
-        )
-        configured_entity = PodPointLegacyWireApiSwitch(
-            coordinator, configured_entry, 0
-        )
-        configured_entity.hass = hass
-        assert configured_entity.is_on is True
-        await configured_entity.async_turn_off()
-        options = update_entry.call_args.kwargs["options"]
-        assert options[CONF_LEGACY_WIRE_API] == {}
 
 
 @pytest.mark.asyncio
