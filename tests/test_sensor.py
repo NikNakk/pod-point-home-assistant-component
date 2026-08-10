@@ -66,7 +66,7 @@ async def setup_sensors(
 async def test_sensor_creation(hass, bypass_get_data):
     """Test that the expected number of sensors is created"""
 
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     assert 11 == len(sensors)
 
@@ -81,7 +81,7 @@ async def test_reward_wallet_sensors(hass, bypass_get_data):
             "payments": {"thresholdGbp": 10, "totalWithdrawnGbp": 0},
         }
     )
-    (_, sensors) = await setup_sensors(hass, reward_wallet=wallet)
+    _, sensors = await setup_sensors(hass, reward_wallet=wallet)
 
     assert len(sensors) == 14
     assert sensors[11].native_value == 8.36
@@ -98,7 +98,7 @@ async def test_reward_wallet_sensors(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_status_pod_sensor(hass, bypass_get_data):
     """Tests for pod status sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     status = sensors[0]
 
@@ -143,7 +143,7 @@ async def test_status_pod_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_total_energy_pod_sensor(hass, bypass_get_data):
     """Tests for pod total eergy sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     total_energy: PodPointTotalEnergySensor
     total_energy = sensors[2]
@@ -179,7 +179,7 @@ async def test_total_energy_pod_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_current_energy_pod_sensor(hass, bypass_get_data):
     """Tests for pod current energy sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     current_energy = sensors[3]
 
@@ -205,7 +205,7 @@ async def test_current_energy_pod_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_total_charge_time_pod_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     charge_time = sensors[1]
 
@@ -266,7 +266,7 @@ async def test_total_charge_time_pod_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_total_cost_pod_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     total_cost = sensors[6]
 
@@ -326,7 +326,7 @@ async def test_total_cost_pod_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_last_charge_cost_pod_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     last_charge = sensors[7]
 
@@ -367,7 +367,7 @@ async def test_last_charge_cost_pod_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_balance_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     balance = sensors[10]
 
@@ -389,7 +389,7 @@ async def test_balance_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_charge_override_sensor(hass, bypass_get_data):
     """Test the charge override sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     override: PodPointChargeOverrideEntity
     override = sensors[9]
@@ -418,7 +418,7 @@ async def test_charge_override_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_charge_mode_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     mode = sensors[8]
 
@@ -435,7 +435,7 @@ async def test_charge_mode_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_signal_strength_sensor(hass, bypass_get_data):
     """Test the signal strength sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     signal_strength = sensors[4]
 
@@ -457,7 +457,7 @@ async def test_signal_strength_sensor(hass, bypass_get_data):
 @pytest.mark.asyncio
 async def test_last_message_sensor(hass, bypass_get_data):
     """Tests for pod total charge time sensor."""
-    (_, sensors) = await setup_sensors(hass)
+    _, sensors = await setup_sensors(hass)
 
     last_message = sensors[5]
 

@@ -34,7 +34,7 @@ async def setup_updates(hass) -> tuple[MockConfigEntry, list[PodUpdateEntity]]:
 @pytest.mark.asyncio
 async def test_update_sensor(hass, bypass_get_data):
     """Tests for pod updates sensor."""
-    (_, updates) = await setup_updates(hass)
+    _, updates = await setup_updates(hass)
 
     [update] = updates
 
