@@ -221,6 +221,7 @@ class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
     async def async_step_user(self, user_input=None) -> ConfigFlowResult:
         """Handle a flow initialized by the user."""
         if user_input is not None:
+            user_input[CONF_CURRENCY] = user_input[CONF_CURRENCY].upper()
             self.options.update(user_input)
             return await self._update_options()
 
@@ -228,7 +229,7 @@ class PodPointOptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required(
                 CONF_CURRENCY,
                 default=self.options.get(CONF_CURRENCY, DEFAULT_CURRENCY),
-            ): vol.All(str, vol.Length(min=3, max=3), str.upper)
+            ): vol.All(str, vol.Length(min=3, max=3))
         }
 
         poll_schema = {

@@ -48,7 +48,7 @@ class PodPointChargeNowDurationNumber(PodPointEntity, RestoreNumber):
     _attr_mode = NumberMode.BOX
     _attr_native_min_value = 1
     _attr_native_max_value = 1440
-    _attr_native_step = 5
+    _attr_native_step = 1
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
 
     def __init__(self, coordinator, config_entry, idx: int):
@@ -93,7 +93,7 @@ class PodPointSmartChargingMaxPriceNumber(PodPointEntity, NumberEntity):
     _attr_mode = NumberMode.BOX
     _attr_native_min_value = 0
     _attr_native_max_value = 5
-    _attr_native_step = 0.01
+    _attr_native_step = 0.0001
 
     @property
     def unique_id(self):

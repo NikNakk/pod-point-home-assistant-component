@@ -45,17 +45,20 @@ async def test_max_price_update_refreshes_preferences_immediately(
     coordinator = entry.runtime_data
     entity = PodPointSmartChargingMaxPriceNumber(coordinator, entry, 0)
     ppid = entity.charger.ppid
-    preferences = SimpleNamespace(max_price=0.17)
+    preferences = SimpleNamespace(max_price=0.2786)
     coordinator.api.async_set_charger_max_price = AsyncMock(return_value=True)
     coordinator.api.async_get_charger_preferences = AsyncMock(return_value=preferences)
 
-    await entity.async_set_native_value(0.17)
+    assert entity.native_step == 0.0001
+    await entity.async_set_native_value(0.2786)
 
     charger = entity.charger
-    coordinator.api.async_set_charger_max_price.assert_awaited_once_with(charger, 0.17)
+    coordinator.api.async_set_charger_max_price.assert_awaited_once_with(
+        charger, 0.2786
+    )
     coordinator.api.async_get_charger_preferences.assert_awaited_once_with(charger)
     assert coordinator.smart_charging_preferences[ppid] is preferences
-    assert entity.native_value == 0.17
+    assert entity.native_value == 0.2786
 
 
 @pytest.mark.asyncio
@@ -71,6 +74,7 @@ async def test_charge_now_duration_is_a_persistent_preset(hass, bypass_get_data)
     ppid = entity.charger.ppid
 
     assert entity.native_value == 60
+    assert entity.native_step == 1
     coordinator.basic_charging_modes[ppid] = BasicChargingMode.TIMED_BOOST
     coordinator.boost_states[ppid] = BoostState(ppid, active=True, timed=True)
     assert entity.available is True

@@ -3,9 +3,11 @@
 from unittest.mock import patch
 
 import pytest
+import voluptuous_serialize
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service_info import dhcp
 from podpointclient.errors import ApiConnectionError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -180,11 +182,18 @@ async def test_options_flow(hass, bypass_get_data):
     # Verify that the first options step is a user form
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "user"
+    # The HTTP API must be able to serialize the schema for the frontend.
+    voluptuous_serialize.convert(
+        result["data_schema"], custom_serializer=cv.custom_serializer
+    )
 
     # Enter some fake data into the form
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        user_input={platform: platform != SENSOR for platform in PLATFORMS},
+        user_input={
+            **{platform: platform != SENSOR for platform in PLATFORMS},
+            CONF_CURRENCY: "usd",
+        },
     )
 
     # Verify that the flow finishes
@@ -196,7 +205,7 @@ async def test_options_flow(hass, bypass_get_data):
         **{platform: platform != SENSOR for platform in PLATFORMS},
         CONF_SCAN_INTERVAL: 300,
         CONF_HTTP_DEBUG: False,
-        CONF_CURRENCY: "GBP",
+        CONF_CURRENCY: "USD",
     }
 
 
