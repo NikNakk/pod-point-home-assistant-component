@@ -4,3 +4,4 @@ pytest-cov
 pytest-socket
 pytest-timeout
 aiodhcpwatcher
+voluptuous-serialize==2.7.0
